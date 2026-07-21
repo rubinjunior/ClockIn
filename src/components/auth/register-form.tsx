@@ -13,6 +13,7 @@ export function RegisterForm() {
     <div className="field"><label htmlFor="email">{he.auth.email} <span aria-hidden>*</span></label><input className="input" id="email" name="email" type="email" inputMode="email" autoComplete="email" dir="ltr" required/></div>
     <div className="field"><label htmlFor="password">{he.auth.password} <span aria-hidden>*</span></label><input className="input" id="password" name="password" type="password" autoComplete="new-password" minLength={8} aria-describedby="password-help" required/><p id="password-help" className="muted text-xs">לפחות 8 תווים</p></div>
     {state.error && <p role="alert" className="rounded-xl bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">{state.error}</p>}
+    {state.success && <p role="status" className="rounded-xl bg-[var(--success-soft)] p-3 text-sm text-[var(--success)]">{state.success}</p>}
     <button className="button-primary w-full" disabled={pending || !usernameValid}>{pending ? "יוצר את החשבון..." : he.auth.register}</button>
     <p className="text-center text-sm">{he.auth.haveAccount} <Link className="font-bold text-[var(--primary)]" href="/login">{he.auth.login}</Link></p>
   </form>;

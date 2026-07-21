@@ -23,12 +23,16 @@ export async function registerAction(_: ActionState, formData: FormData): Promis
   const supabase = await createClient();
   const { data: available } = await supabase.rpc("is_username_available", { candidate: parsed.data.username });
   if (!available) return { error: "שם המשתמש כבר תפוס" };
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
-    options: { data: { username: parsed.data.username, normalized_username: normalizeUsername(parsed.data.username) } },
+    options: {
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback?next=/onboarding`,
+      data: { username: parsed.data.username, normalized_username: normalizeUsername(parsed.data.username) },
+    },
   });
   if (error) return { error: "לא ניתן ליצור את החשבון. כדאי לנסות שוב." };
+  if (!data.session) return { success: "שלחנו אליך קישור לאישור החשבון. לאחר האישור אפשר להיכנס." };
   redirect("/onboarding");
 }
 
@@ -36,7 +40,7 @@ export async function forgotPasswordAction(_: ActionState, formData: FormData): 
   const email = String(formData.get("email") ?? "");
   if (!authSchema.shape.email.safeParse(email).success) return { error: "יש להזין כתובת דואר תקינה" };
   const supabase = await createClient();
-  await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/reset-password` });
+  await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback?next=/reset-password` });
   return { success: "אם קיים חשבון מתאים, נשלח אליו קישור לאיפוס הסיסמה" };
 }
 

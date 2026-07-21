@@ -1,0 +1,25 @@
+project_id = "ClockIn"
+
+[auth]
+enabled = true
+site_url = "https://clock-in-omega.vercel.app"
+additional_redirect_urls = [
+  "http://localhost:3000/**",
+  "https://clock-in-omega.vercel.app/**",
+  "https://*-rubihub.vercel.app/**"
+]
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
+
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
