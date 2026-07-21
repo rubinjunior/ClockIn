@@ -7,6 +7,16 @@ export function calculateDailyBalance(input: DailyCalculationInput): DailyBalanc
   return { ...input, finalBalanceMinutes, missingMinutes: input.future ? 0 : Math.max(0, -finalBalanceMinutes), overtimeMinutes: Math.max(0, finalBalanceMinutes) };
 }
 
+export function minutesBetween(start: string, end: string): number {
+  const [startHour, startMinute] = start.split(":").map(Number);
+  const [endHour, endMinute] = end.split(":").map(Number);
+  if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return 0;
+  const startTotal = startHour * 60 + startMinute;
+  const endTotal = endHour * 60 + endMinute;
+  if (startTotal === endTotal) return 0;
+  return endTotal > startTotal ? endTotal - startTotal : 1440 - startTotal + endTotal;
+}
+
 export function calculateMonthlyBalance(days: DailyBalance[]) {
   return days.reduce((sum, day) => ({
     expectedMinutes: sum.expectedMinutes + day.expectedMinutes,

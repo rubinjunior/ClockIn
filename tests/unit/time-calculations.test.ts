@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { calculateDailyBalance, calculateMonthlyBalance, estimateHourlyCompensation, isReminderDue, sessionsOverlap, splitSessionByLocalDate } from "@/lib/time/calculations";
+import { calculateDailyBalance, calculateMonthlyBalance, estimateHourlyCompensation, isReminderDue, minutesBetween, sessionsOverlap, splitSessionByLocalDate } from "@/lib/time/calculations";
 import { formatDuration, formatMinutes } from "@/lib/formatting";
 
 describe("חישובי זמן", () => {
+  it("מחשב יעד יומי משעות התחלה וסיום", () => expect(minutesBetween("09:00", "18:00")).toBe(540));
+  it("מחשב משמרת שחוצה חצות", () => expect(minutesBetween("22:00", "06:00")).toBe(480));
   it("מחשב יום רגיל חסר", () => expect(calculateDailyBalance({date:"2026-07-20",expectedMinutes:510,workedMinutes:450,creditedAbsenceMinutes:0,manualAdjustmentMinutes:0}).missingMinutes).toBe(60));
   it("מחשב שעות נוספות", () => expect(calculateDailyBalance({date:"2026-07-20",expectedMinutes:480,workedMinutes:540,creditedAbsenceMinutes:0,manualAdjustmentMinutes:0}).overtimeMinutes).toBe(60));
   it("לא מסמן יום עתידי כחסר", () => expect(calculateDailyBalance({date:"2099-01-01",expectedMinutes:510,workedMinutes:0,creditedAbsenceMinutes:0,manualAdjustmentMinutes:0,future:true}).missingMinutes).toBe(0));
