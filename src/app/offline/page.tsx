@@ -1,0 +1,2 @@
+import { WifiOff } from "lucide-react";
+export default function OfflinePage() { return <main id="main-content" className="min-h-dvh grid place-items-center p-6"><section className="card max-w-md p-8 text-center"><WifiOff aria-hidden className="mx-auto mb-5 text-[var(--primary)]" size={40}/><h1 className="text-2xl font-bold">אין חיבור לאינטרנט</h1><p className="muted mt-3">אפשר לעיין במידע שכבר נטען. פעולות שעון יאושרו רק לאחר חיבור מאובטח לשרת.</p><a className="button-primary mt-6" href="/app">ניסיון נוסף</a></section></main>; }

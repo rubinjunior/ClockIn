@@ -1,0 +1,4 @@
+"use client";
+import { useActionState } from "react";
+import { forgotPasswordAction } from "@/actions/auth-actions";
+export function ForgotForm() { const [state, action, pending] = useActionState(forgotPasswordAction, {}); return <form action={action} className="grid gap-5"><div className="field"><label htmlFor="email">דואר אלקטרוני</label><input className="input" id="email" name="email" type="email" inputMode="email" autoComplete="email" dir="ltr" required/></div>{state.error && <p role="alert" className="rounded-xl bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">{state.error}</p>}{state.success && <p role="status" className="rounded-xl bg-[var(--success-soft)] p-3 text-sm text-[var(--success)]">{state.success}</p>}<button className="button-primary" disabled={pending}>{pending ? "שולח..." : "שליחת קישור לאיפוס"}</button></form>; }

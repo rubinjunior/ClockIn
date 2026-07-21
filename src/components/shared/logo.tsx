@@ -1,0 +1,2 @@
+import { Clock3 } from "lucide-react";
+export function Logo({ compact = false }: { compact?: boolean }) { return <span className="inline-flex items-center gap-2 font-extrabold tracking-tight text-[var(--primary)]"><span className="grid size-10 place-items-center rounded-2xl bg-[var(--primary)] text-white"><Clock3 aria-hidden size={22}/></span>{!compact && <span className="text-xl" dir="ltr">ClockIn</span>}</span>; }
