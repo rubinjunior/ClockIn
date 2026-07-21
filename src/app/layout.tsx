@@ -7,7 +7,10 @@ export const metadata: Metadata = {
   description: "מעקב שעות אישי, פשוט ומדויק",
   applicationName: "ClockIn",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "ClockIn" },
-  icons: { icon: "/icons/icon.svg", apple: "/icons/icon.svg" },
+  icons: {
+    icon: [{ url: "/icons/icon-32.png", sizes: "32x32", type: "image/png" }, { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#3D348B" };
 

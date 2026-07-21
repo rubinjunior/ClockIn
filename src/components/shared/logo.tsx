@@ -1,2 +1,8 @@
-import { Clock3 } from "lucide-react";
-export function Logo({ compact = false }: { compact?: boolean }) { return <span className="inline-flex items-center gap-2 font-extrabold tracking-tight text-[var(--primary)]"><span className="grid size-10 place-items-center rounded-2xl bg-[var(--primary)] text-white"><Clock3 aria-hidden size={22}/></span>{!compact && <span className="text-xl" dir="ltr">ClockIn</span>}</span>; }
+import Image from "next/image";
+
+export function Logo({ compact = false }: { compact?: boolean }) {
+  return <span className="inline-flex items-center gap-2.5 font-extrabold tracking-tight text-[var(--primary)]">
+    <Image src="/brand/clockin-mark.png" alt="" width={44} height={44} className="size-11 object-contain" />
+    {!compact && <span className="text-xl" dir="ltr">ClockIn</span>}
+  </span>;
+}
