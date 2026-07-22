@@ -1,10 +1,46 @@
-const CACHE = "clockin-shell-v2";
-const SHELL = ["/offline", "/icons/icon-192.png", "/manifest.webmanifest"];
-self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())));
-self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));
+const CACHE = "clockin-static-v3";
+const STATIC_ASSETS = new Set(["/offline", "/icons/icon-192.png", "/manifest.webmanifest"]);
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll([...STATIC_ASSETS])).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
-  event.respondWith(fetch(event.request).then((response) => { const copy = response.clone(); caches.open(CACHE).then((cache) => cache.put(event.request, copy)); return response; }).catch(() => caches.match(event.request).then((cached) => cached || (event.request.mode === "navigate" ? caches.match("/offline") : undefined))));
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(fetch(event.request).catch(() => caches.match("/offline")));
+    return;
+  }
+
+  if (STATIC_ASSETS.has(url.pathname)) {
+    event.respondWith(caches.match(event.request).then((cached) => cached ?? fetch(event.request)));
+  }
 });
-self.addEventListener("push", (event) => { const data = event.data?.json() ?? { title: "ClockIn", body: "הגיע הזמן לעדכן את דיווח השעות" }; event.waitUntil(self.registration.showNotification(data.title, { body: data.body, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", dir: "rtl", lang: "he", data: { url: data.url || "/app" } })); });
-self.addEventListener("notificationclick", (event) => { event.notification.close(); event.waitUntil(self.clients.openWindow(event.notification.data.url)); });
+
+self.addEventListener("push", (event) => {
+  const data = event.data?.json() ?? { title: "ClockIn", body: "הגיע הזמן לעדכן את דיווח השעות" };
+  event.waitUntil(self.registration.showNotification(data.title, {
+    body: data.body,
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    dir: "rtl",
+    lang: "he",
+    data: { url: data.url || "/app" },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(self.clients.openWindow(event.notification.data.url));
+});

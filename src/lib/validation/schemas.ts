@@ -10,7 +10,13 @@ export const timeEntrySchema = z.object({
   note: z.string().trim().max(500).optional(),
   categoryId: z.preprocess((value) => value === "" || value == null ? null : value, z.uuid().nullable()),
   reason: z.string().trim().min(3, "יש לציין סיבה").max(250),
-}).refine((value) => new Date(value.clockOut) > new Date(value.clockIn), { path: ["clockOut"], message: "שעת הסיום חייבת להיות אחרי שעת ההתחלה" });
+}).superRefine((value, context) => {
+  const clockIn = new Date(value.clockIn);
+  const clockOut = new Date(value.clockOut);
+  if (clockOut <= clockIn) context.addIssue({ code: "custom", path: ["clockOut"], message: "שעת הסיום חייבת להיות אחרי שעת ההתחלה" });
+  const futureLimit = Date.now() + 60_000;
+  if (clockIn.getTime() > futureLimit || clockOut.getTime() > futureLimit) context.addIssue({ code: "custom", path: ["clockOut"], message: "לא ניתן להזין שעות עתידיות" });
+});
 
 export function normalizeUsername(value: string) {
   return value.trim().replace(/\s+/g, " ").normalize("NFKC").toLocaleLowerCase("he-IL");

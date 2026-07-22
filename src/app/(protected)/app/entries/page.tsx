@@ -2,10 +2,12 @@ import { formatInTimeZone } from "date-fns-tz";
 import { CalendarClock, FilePenLine, Tag } from "lucide-react";
 import { EntryForm, type EntryFormCategory } from "@/components/entries/entry-form";
 import { createClient } from "@/lib/supabase/server";
+import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { requireUser } from "@/lib/supabase/session";
 import { formatLocalDate, formatMinutes, formatTime } from "@/lib/formatting";
 import { demoEntries, isDemoMode } from "@/lib/demo";
 import { he } from "@/lib/i18n/he";
+import { israelMonth } from "@/lib/time/israel";
 
 type EntryRow = {
   id: string;
@@ -22,7 +24,7 @@ type EntryRow = {
 export default async function EntriesPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const user = await requireUser();
   const params = await searchParams;
-  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : new Date().toISOString().slice(0, 7);
+  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : israelMonth();
   const start = month + "-01T00:00:00.000Z";
   const end = new Date(start);
   end.setUTCMonth(end.getUTCMonth() + 1);
@@ -52,6 +54,7 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
       supabase.from("profiles").select("timezone").eq("id", user.id).single(),
     ]);
+    requireSuccessfulQueries("entries", [entriesResult, categoriesResult, profileResult]);
     entries = entriesResult.data;
     error = entriesResult.error;
     categories = (categoriesResult.data ?? []).map((category) => ({ id: category.id, name: category.name, isActive: category.is_active }));

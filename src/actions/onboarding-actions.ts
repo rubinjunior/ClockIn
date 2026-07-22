@@ -6,6 +6,7 @@ import { he } from "@/lib/i18n/he";
 import { createClient } from "@/lib/supabase/server";
 import { minutesBetween } from "@/lib/time/calculations";
 import { normalizeUsername, usernameSchema } from "@/lib/validation/schemas";
+import { israelToday } from "@/lib/time/israel";
 
 export type OnboardingDebugEvent = { status: "ok" | "error"; message: string };
 export type OnboardingState = { error?: string; events: OnboardingDebugEvent[] };
@@ -18,7 +19,7 @@ const optionalAmount = z.preprocess(
 const onboardingSchema = z.object({
   username: usernameSchema,
   fullName: z.string().trim().max(100).optional(),
-  timezone: z.enum(["Asia/Jerusalem", "Europe/London", "America/New_York"]),
+  timezone: z.literal("Asia/Jerusalem"),
   startTime: timeSchema,
   endTime: timeSchema,
   compensationMode: z.enum(["hidden", "hourly", "global"]),
@@ -47,7 +48,7 @@ export async function completeOnboarding(_: OnboardingState, formData: FormData)
   const values = parsed.data;
   const targetMinutes = minutesBetween(values.startTime, values.endTime);
   const notifications = formData.get("notifications") === "on";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = israelToday();
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return failed(events, he.onboarding.loginAgain, authError?.code);

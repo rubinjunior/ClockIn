@@ -8,9 +8,18 @@ import { SummaryCard } from "@/components/dashboard/summary-card";
 import { formatLocalDate, formatMinutes, formatTime } from "@/lib/formatting";
 import { he } from "@/lib/i18n/he";
 import { createClient } from "@/lib/supabase/server";
+import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { requireUser } from "@/lib/supabase/session";
 import { demoEntries, isDemoMode } from "@/lib/demo";
+import { getIsraelCalendarRules } from "@/lib/holidays/israel";
+import { applyIsraelCalendar } from "@/lib/reports/israel-calendar";
+import { calculateLeaveBalances, type ExceptionForBalance, type LeaveEntryForBalance, type ScheduleForBalance } from "@/lib/leave/balances";
 
+type DashboardReportRow = {
+  work_date: string; expected_minutes: number; worked_minutes: number; credited_absence_minutes: number;
+  manual_adjustment_minutes: number; final_balance_minutes: number; missing_minutes: number; overtime_minutes: number;
+  sessions: number; holiday_label: string | null; shortened_day: boolean;
+};
 type ReminderSetting = {
   reminder_type: "clock_in" | "clock_out";
   local_time: string;
@@ -59,38 +68,70 @@ export default async function DashboardPage() {
   } else {
     const supabase = await createClient();
     const profileResult = await supabase.from("profiles").select("username,timezone").eq("id", user.id).single();
+    requireSuccessfulQueries("dashboard-profile", [profileResult]);
     profile = profileResult.data;
     const timezone = profile?.timezone ?? "Asia/Jerusalem";
     const localNow = toZonedTime(new Date(), timezone);
     const today = format(localNow, "yyyy-MM-dd");
     const weekStart = format(subDays(localNow, localNow.getDay()), "yyyy-MM-dd");
+    const calendarRulesPromise = Promise.all([...new Set([weekStart.slice(0, 4), today.slice(0, 4)])].map((year) => getIsraelCalendarRules(Number(year))));
 
-    const [activeResult, recentResult, weekResult, balancesResult, remindersResult] = await Promise.all([
+    const [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult] = await Promise.all([
       supabase.from("time_entries").select("clock_in").is("clock_out", null).is("deleted_at", null).maybeSingle(),
       supabase.from("time_entries").select("id,clock_in,clock_out").not("clock_out", "is", null).is("deleted_at", null).order("clock_in", { ascending: false }).limit(3),
       supabase.rpc("monthly_report", { month_start: weekStart, month_end: today, include_future: false }),
       supabase.from("leave_balance_adjustments").select("leave_type,minutes").lte("effective_date", today),
       supabase.from("reminder_settings").select("reminder_type,local_time,timezone,weekdays").eq("enabled", true),
+      supabase.from("leave_entries").select("leave_type,start_date,end_date,partial_minutes").eq("status", "approved").lte("start_date", today),
+      supabase.from("work_schedule_versions").select("effective_from,effective_to,work_schedule_days(weekday,is_workday,target_minutes)").order("effective_from"),
+      supabase.from("calendar_exceptions").select("exception_date,exception_type,target_minutes").lte("exception_date", today),
     ]);
+    requireSuccessfulQueries("dashboard", [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult]);
 
     active = activeResult.data;
     recent = recentResult.data ?? [];
 
-    for (const row of weekResult.data ?? []) {
-      const worked = Number(row.worked_minutes);
-      const expected = Number(row.expected_minutes);
-      weeklyWorked += worked;
-      weeklyExpected += expected;
-      if (row.work_date === today) {
-        todayWorked = worked;
-        todayExpected = expected;
+    const weekDays = applyIsraelCalendar((weekResult.data ?? []).map((row: DashboardReportRow) => ({
+      date: row.work_date,
+      expectedMinutes: Number(row.expected_minutes) || 0,
+      workedMinutes: Number(row.worked_minutes) || 0,
+      creditedAbsenceMinutes: Number(row.credited_absence_minutes) || 0,
+      manualAdjustmentMinutes: Number(row.manual_adjustment_minutes) || 0,
+      finalBalanceMinutes: Number(row.final_balance_minutes) || 0,
+      missingMinutes: Number(row.missing_minutes) || 0,
+      overtimeMinutes: Number(row.overtime_minutes) || 0,
+      sessions: Number(row.sessions) || 0,
+      future: row.work_date > today,
+      holidayLabel: row.holiday_label ?? null,
+      shortenedDay: Boolean(row.shortened_day),
+    })), (await calendarRulesPromise).flat(), false);
+
+    for (const row of weekDays) {
+      weeklyWorked += row.workedMinutes;
+      weeklyExpected += row.expectedMinutes;
+      if (row.date === today) {
+        todayWorked = row.workedMinutes;
+        todayExpected = row.expectedMinutes;
       }
     }
 
-    for (const adjustment of balancesResult.data ?? []) {
-      if (adjustment.leave_type === "vacation") vacationMinutes += Number(adjustment.minutes);
-      if (adjustment.leave_type === "sick") sickMinutes += Number(adjustment.minutes);
+    const leaveRows: LeaveEntryForBalance[] = (leavesResult.data ?? []).map((entry) => ({ leaveType: entry.leave_type as "vacation" | "sick", startDate: entry.start_date, endDate: entry.end_date, partialMinutes: entry.partial_minutes }));
+    const leaveYearSet = new Set<number>([Number(today.slice(0, 4))]);
+    for (const entry of leaveRows) {
+      for (let year = Number(entry.startDate.slice(0, 4)); year <= Number(entry.endDate.slice(0, 4)); year += 1) leaveYearSet.add(year);
     }
+    const leaveYears = [...leaveYearSet];
+    const leaveRules = (await Promise.all(leaveYears.map((year) => getIsraelCalendarRules(year)))).flat();
+    const leaveBalances = calculateLeaveBalances({
+      asOf: today,
+      adjustments: (balancesResult.data ?? []).map((item) => ({ leaveType: item.leave_type as "vacation" | "sick", minutes: Number(item.minutes) })),
+      leaves: leaveRows,
+      schedules: (schedulesResult.data ?? []).map((schedule) => ({ effectiveFrom: schedule.effective_from, effectiveTo: schedule.effective_to, days: schedule.work_schedule_days.map((day) => ({ weekday: day.weekday, isWorkday: day.is_workday, targetMinutes: day.target_minutes })) })) as ScheduleForBalance[],
+      exceptions: (exceptionsResult.data ?? []).map((item) => ({ date: item.exception_date, type: item.exception_type, targetMinutes: item.target_minutes })) as ExceptionForBalance[],
+      rules: leaveRules,
+    });
+    vacationMinutes = leaveBalances.vacation;
+    sickMinutes = leaveBalances.sick;
 
     nextReminder = findNextReminder((remindersResult.data ?? []) as ReminderSetting[], new Date(), timezone);
   }

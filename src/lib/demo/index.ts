@@ -1,4 +1,5 @@
 import type { TimeEntry } from "@/types/domain";
+import { israelToday } from "@/lib/time/israel";
 
 export const DEMO_USER = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -17,7 +18,7 @@ export function demoEntries(): Array<TimeEntry & { edit_reason: string | null; u
 export function demoReportRows(month: string) {
   const first = new Date(`${month}-01T12:00:00Z`);
   const next = new Date(first); next.setUTCMonth(next.getUTCMonth() + 1);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = israelToday();
   const rows = [];
   for (const day = new Date(first); day < next; day.setUTCDate(day.getUTCDate() + 1)) {
     const date = day.toISOString().slice(0, 10);

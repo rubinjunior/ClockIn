@@ -96,14 +96,8 @@ export function OnboardingWizard({ initialUsername }: { initialUsername: string 
           <Step title="נעים להכיר" subtitle="הפרטים שיעזרו לנו להתאים את ClockIn אליך" icon={UserRound}>
             <Field label="שם משתמש" name="username" defaultValue={initialUsername} required />
             <Field label="שם מלא (לא חובה)" name="fullName" autoComplete="name" />
-            <label className="field">
-              <span>אזור זמן</span>
-              <select className="input" name="timezone" defaultValue="Asia/Jerusalem">
-                <option value="Asia/Jerusalem">ישראל – ירושלים</option>
-                <option value="Europe/London">אירופה – לונדון</option>
-                <option value="America/New_York">אמריקה – ניו יורק</option>
-              </select>
-            </label>
+            <input type="hidden" name="timezone" value="Asia/Jerusalem" />
+            <div className="rounded-2xl bg-[var(--background)] p-4"><span className="muted text-sm">אזור זמן קבוע</span><b className="block">ישראל · Asia/Jerusalem</b></div>
           </Step>
         </div>
 

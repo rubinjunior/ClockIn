@@ -25,15 +25,18 @@ test("אפשר להוסיף דיווח ליום ישירות מתוך הדוח",
   await page.goto("/app/report?month=2026-07");
   const addButton = page.getByRole("button", { name: /הוספת דיווח 2026-07/ }).first();
   await addButton.click();
-  await expect(page.getByRole("heading", { name: "הוספת דיווח" })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "קטגוריה" })).toBeVisible();
+  const modal = page.locator("dialog[open]");
+  await expect(modal.getByRole("heading", { name: "הוספת דיווח" })).toBeVisible();
+  await expect(modal.getByRole("combobox", { name: "קטגוריה" })).toBeVisible();
+  await expect(modal.getByText("ניתן לדווח רק עד השעה הנוכחית")).toBeVisible();
+  await expect(modal.getByLabel("כניסה")).toHaveAttribute("max", /T/);
 });
 test("ערך עם סימן ממורכז בתוך עמודת המאזן", async ({ page }) => {
   await page.goto("/app/report?view=list");
   const desktop = (page.viewportSize()?.width ?? 0) >= 768;
   const container = desktop
     ? page.locator("tr[data-date]").first().locator("td").nth(5)
-    : page.locator('article[id^="day-"]').first().locator("dd").nth(2);
+    : page.locator('article[data-report-date]:visible').first().locator("dd").nth(2);
   const value = container.locator("span.metric-value");
   await expect(value).toBeVisible();
   const centers = await Promise.all([container.boundingBox(), value.boundingBox()]);
@@ -43,4 +46,28 @@ test("ערך עם סימן ממורכז בתוך עמודת המאזן", async (
   const valueCenter = centers[1]!.x + centers[1]!.width / 2;
   expect(Math.abs(cellCenter - valueCenter)).toBeLessThanOrEqual(1);
   await expect(value).toHaveCSS("direction", "ltr");
+});
+test("לא ניתן להוסיף דיווח ליום עתידי", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07&view=list");
+  await expect(page.getByRole("button", { name: "הוספת דיווח 2026-07-31" })).toHaveCount(0);
+});
+test("שכר משוער מחובר להגדרת השכר", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07");
+  const compensationCard = page.getByText("שכר משוער", { exact: true }).locator("..");
+  await expect(compensationCard.getByText(/₪/)).toBeVisible();
+  await expect(compensationCard.getByText(/לפני ניכויים ותוספות/)).toBeVisible();
+});
+
+test("היום הנוכחי מסומן בתהליך ולא כחוסר", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07&view=list");
+  const desktop = (page.viewportSize()?.width ?? 0) >= 768;
+  const day = desktop ? page.locator('tr[data-date="2026-07-22"]') : page.locator('[data-report-date="2026-07-22"]:visible');
+  await expect(day.getByText("בתהליך", { exact: true })).toBeVisible();
+});
+
+test("מלוח השנה אפשר להגיע ישירות לעריכת היום", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07&view=calendar");
+  await page.getByRole("link", { name: "פתיחת יום לעריכה 2026-07-20" }).click();
+  await expect(page).toHaveURL(/view=list&editDate=2026-07-20$/);
+  await expect(page.locator('[data-report-date="2026-07-20"]:visible')).toBeFocused();
 });
