@@ -9,18 +9,35 @@ import { formatMinutes } from "@/lib/formatting";
 import { demoReportRows, isDemoMode } from "@/lib/demo";
 
 function shiftMonth(month: string, offset: number) { const date = new Date(`${month}-01T00:00:00Z`); date.setUTCMonth(date.getUTCMonth()+offset); return date.toISOString().slice(0,7); }
+function countLeaveDays(entries: Array<{leave_type:string;start_date:string;end_date:string;partial_minutes:number|null}>, type: string, start: string, end: string) {
+  return entries.filter((entry) => entry.leave_type === type).reduce((total, entry) => {
+    if (entry.partial_minutes) return total + 0.5;
+    const firstDate = entry.start_date < start ? start : entry.start_date;
+    const lastDate = entry.end_date > end ? end : entry.end_date;
+    const first = new Date(firstDate + "T12:00:00Z");
+    const last = new Date(lastDate + "T12:00:00Z");
+    return total + Math.max(0, Math.round((last.getTime() - first.getTime()) / 86400000) + 1);
+  }, 0);
+}
+
 export default async function ReportPage({ searchParams }: { searchParams: Promise<{month?:string; mode?:string}> }) {
   await requireUser(); const params = await searchParams; const current = new Date().toISOString().slice(0,7); const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : current; const full = params.mode === "full"; const start = `${month}-01`; const last = new Date(`${month}-01T00:00:00Z`); last.setUTCMonth(last.getUTCMonth()+1); last.setUTCDate(0); const end = last.toISOString().slice(0,10);
   const today = new Date().toISOString().slice(0,10);
-  const days = isDemoMode() ? demoReportRows(month) : await (async () => {
-    const supabase = await createClient(); const { data } = await supabase.rpc("monthly_report", { month_start:start, month_end:end, include_future:full });
+  const demoMode = isDemoMode(); const supabase = demoMode ? null : await createClient();
+  const days = demoMode ? demoReportRows(month) : await (async () => {
+    const { data } = await supabase!.rpc("monthly_report", { month_start:start, month_end:end, include_future:full });
     return (data ?? []).map((row: { work_date:string; expected_minutes:number; worked_minutes:number; credited_absence_minutes:number; manual_adjustment_minutes:number; final_balance_minutes:number; missing_minutes:number; overtime_minutes:number; sessions:number; first_clock_in:string|null; last_clock_out:string|null; holiday_label:string|null; shortened_day:boolean; provisional:boolean }) => ({ date:row.work_date, expectedMinutes:Number(row.expected_minutes), workedMinutes:Number(row.worked_minutes), creditedAbsenceMinutes:Number(row.credited_absence_minutes), manualAdjustmentMinutes:Number(row.manual_adjustment_minutes), finalBalanceMinutes:Number(row.final_balance_minutes), missingMinutes:Number(row.missing_minutes), overtimeMinutes:Number(row.overtime_minutes), sessions:Number(row.sessions), future:row.work_date>today }));
-  })(); const totals = calculateMonthlyBalance(days);
+  })();
+  const leaveEntries = demoMode ? [] : ((await supabase!.from("leave_entries").select("leave_type,start_date,end_date,partial_minutes").eq("status","approved").lte("start_date",end).gte("end_date",start)).data ?? []);
+  const vacationDays = countLeaveDays(leaveEntries, "vacation", start, end);
+  const sickDays = countLeaveDays(leaveEntries, "sick", start, end);
+  const dayNumber = new Intl.NumberFormat("he-IL", { maximumFractionDigits: 1 });
+  const totals = calculateMonthlyBalance(days);
   const monthLabel = new Intl.DateTimeFormat("he-IL", { month:"long", year:"numeric" }).format(new Date(`${month}-01T12:00:00Z`));
   return <div className="grid gap-6"><header className="flex flex-wrap items-end justify-between gap-4"><div><p className="muted text-sm">תמונה מלאה של החודש</p><h1 className="text-3xl font-extrabold">דוח חודשי</h1></div><ReportActions month={month}/></header>
     <section className="card flex flex-wrap items-center justify-between gap-3 p-3"><Link aria-label="החודש הבא" className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={`?month=${shiftMonth(month,1)}&mode=${full?"full":"to-date"}`}><ChevronRight aria-hidden/></Link><div className="text-center"><h2 className="text-xl font-extrabold">{monthLabel}</h2><Link className="text-sm font-bold text-[var(--primary)]" href={`?month=${current}`}>החודש הנוכחי</Link></div><Link aria-label="החודש הקודם" className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={`?month=${shiftMonth(month,-1)}&mode=${full?"full":"to-date"}`}><ChevronLeft aria-hidden/></Link></section>
     <div className="no-print mx-auto flex rounded-full bg-[var(--surface-muted)] p-1" role="group" aria-label="טווח הדוח"><Link href={`?month=${month}&mode=to-date`} className={`min-h-11 rounded-full px-5 py-2.5 font-bold ${!full ? "bg-white text-[var(--primary)] shadow-sm":"muted"}`}>עד היום</Link><Link href={`?month=${month}&mode=full`} className={`min-h-11 rounded-full px-5 py-2.5 font-bold ${full ? "bg-white text-[var(--primary)] shadow-sm":"muted"}`}>חודש מלא</Link></div>
-    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><SummaryCard icon={Clock} label="שעות בפועל" value={formatMinutes(totals.workedMinutes)}/><SummaryCard icon={Gauge} label="שעות צפויות" value={formatMinutes(totals.expectedMinutes)}/><SummaryCard icon={CircleMinus} label="שעות חסרות" value={formatMinutes(totals.missingMinutes)} tone="warning"/><SummaryCard icon={CircleCheck} label="שעות נוספות" value={formatMinutes(totals.overtimeMinutes)} tone="success"/><SummaryCard icon={Plane} label="ימי חופשה" value="0"/><SummaryCard icon={Stethoscope} label="ימי מחלה" value="0"/></section>
+    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4"><SummaryCard icon={Clock} label="שעות בפועל" value={formatMinutes(totals.workedMinutes)}/><SummaryCard icon={Gauge} label="שעות צפויות" value={formatMinutes(totals.expectedMinutes)}/><SummaryCard icon={CircleMinus} label="שעות חסרות" value={formatMinutes(totals.missingMinutes)} tone="warning"/><SummaryCard icon={CircleCheck} label="שעות נוספות" value={formatMinutes(totals.overtimeMinutes)} tone="success"/><SummaryCard icon={Plane} label="ימי חופשה" value={dayNumber.format(vacationDays)}/><SummaryCard icon={Stethoscope} label="ימי מחלה" value={dayNumber.format(sickDays)}/></section>
     <section><h2 className="mb-3 text-xl font-extrabold">פירוט יומי</h2>{days.length ? <><div className="grid gap-3 md:hidden">{days.map((day: (typeof days)[number]) => <DayCard key={day.date} day={day}/>)}</div><div className="card hidden overflow-hidden md:block"><table className="w-full border-collapse text-sm"><thead className="bg-[var(--primary-soft)] text-[var(--primary)]"><tr>{["תאריך","סטטוס","צפוי","בפועל","התאמות","מאזן","דיווחים"].map(x=><th className="p-4 text-start" key={x}>{x}</th>)}</tr></thead><tbody>{days.map((day: (typeof days)[number])=><tr key={day.date} className="border-t border-[var(--border-soft)]"><td className="p-4 font-bold">{new Intl.DateTimeFormat("he-IL",{weekday:"short",day:"numeric",month:"numeric"}).format(new Date(`${day.date}T12:00:00Z`))}</td><td className="p-4">{day.future ? "עתידי" : day.finalBalanceMinutes < 0 ? "חסרות שעות" : "הושלם"}</td><td className="metric-value p-4">{formatMinutes(day.expectedMinutes)}</td><td className="metric-value p-4">{formatMinutes(day.workedMinutes)}</td><td className="metric-value p-4">{formatMinutes(day.manualAdjustmentMinutes)}</td><td className="metric-value p-4 font-bold">{formatMinutes(day.finalBalanceMinutes)}</td><td className="p-4">{day.sessions}</td></tr>)}</tbody></table></div></> : <div className="card p-8 text-center"><p className="font-bold">אין נתונים לחודש שנבחר</p></div>}</section>
   </div>;
 }
