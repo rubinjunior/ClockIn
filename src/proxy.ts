@@ -3,15 +3,16 @@ import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const demoMode = process.env.NODE_ENV !== "production" && process.env.DEMO_MODE === "true";
+  if (demoMode) return response;
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) {
-    const demoMode = process.env.NODE_ENV !== "production";
-    const authPath = ["/login", "/register", "/forgot-password"].includes(request.nextUrl.pathname);
-    if (demoMode && authPath) return NextResponse.redirect(new URL("/app", request.url));
     const needsAuth = request.nextUrl.pathname.startsWith("/app") || request.nextUrl.pathname.startsWith("/onboarding");
-    return needsAuth && !demoMode ? NextResponse.redirect(new URL("/login", request.url)) : response;
+    return needsAuth ? NextResponse.redirect(new URL("/login", request.url)) : response;
   }
+
   const supabase = createServerClient(url, key, {
     cookies: {
       getAll: () => request.cookies.getAll(),

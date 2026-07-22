@@ -1,6 +1,8 @@
 export type EntrySource = "clock" | "manual" | "import";
 export type LeaveType = "vacation" | "sick" | "custom";
 export type ExceptionType = "holiday" | "shortened" | "day_off" | "special_workday";
+export type AppRole = "user" | "admin";
+
 export type CompensationMode = "hidden" | "hourly" | "global";
 
 export interface TimeEntry {
@@ -10,6 +12,13 @@ export interface TimeEntry {
   source: EntrySource;
   note?: string | null;
   edited?: boolean;
+  categoryId?: string | null;
+}
+
+export interface WorkCategory {
+  id: string;
+  name: string;
+  isActive: boolean;
 }
 
 export interface DailyCalculationInput {

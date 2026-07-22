@@ -8,6 +8,7 @@ export const timeEntrySchema = z.object({
   clockIn: z.iso.datetime(),
   clockOut: z.iso.datetime(),
   note: z.string().trim().max(500).optional(),
+  categoryId: z.preprocess((value) => value === "" || value == null ? null : value, z.uuid().nullable()),
   reason: z.string().trim().min(3, "יש לציין סיבה").max(250),
 }).refine((value) => new Date(value.clockOut) > new Date(value.clockIn), { path: ["clockOut"], message: "שעת הסיום חייבת להיות אחרי שעת ההתחלה" });
 

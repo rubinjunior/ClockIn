@@ -12,8 +12,8 @@ export async function saveEntry(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, message: "נדרשת כניסה מחדש" };
-  const row = { user_id: user.id, clock_in: parsed.data.clockIn, clock_out: parsed.data.clockOut, note: parsed.data.note, edit_reason: parsed.data.reason, source: "manual" };
-  const query = parsed.data.id ? supabase.from("time_entries").update(row).eq("id", parsed.data.id) : supabase.from("time_entries").insert(row);
+  const row = { user_id: user.id, clock_in: parsed.data.clockIn, clock_out: parsed.data.clockOut, note: parsed.data.note, edit_reason: parsed.data.reason, category_id: parsed.data.categoryId, source: "manual" };
+  const query = parsed.data.id ? supabase.from("time_entries").update(row).eq("id", parsed.data.id).eq("user_id", user.id) : supabase.from("time_entries").insert(row);
   const { error } = await query;
   if (error) return { ok: false, message: error.message.includes("overlap") ? "הדיווח חופף לדיווח קיים" : "לא ניתן לשמור את הדיווח" };
   revalidatePath("/app/entries");
