@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { Rubik } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegistration } from "@/components/shared/service-worker-registration";
+
+const rubik = Rubik({ subsets: ["hebrew", "latin"], variable: "--font-rubik", display: "swap" });
 
 export const metadata: Metadata = {
   title: { default: "ClockIn – מעקב שעות", template: "%s | ClockIn" },
@@ -13,8 +16,8 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#3D348B" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#6840D0" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="he" dir="rtl"><body><a className="skip-link" href="#main-content">דילוג לתוכן הראשי</a>{children}<ServiceWorkerRegistration /></body></html>;
+  return <html lang="he" dir="rtl" className={rubik.variable}><body><a className="skip-link" href="#main-content">דילוג לתוכן הראשי</a>{children}<ServiceWorkerRegistration /></body></html>;
 }

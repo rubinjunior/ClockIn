@@ -1,5 +1,12 @@
-const CACHE = "clockin-static-v3";
-const STATIC_ASSETS = new Set(["/offline", "/icons/icon-192.png", "/manifest.webmanifest"]);
+const CACHE = "clockin-static-v4";
+const STATIC_ASSETS = new Set([
+  "/offline",
+  "/brand/clockin-mark.png",
+  "/icons/icon-32.png",
+  "/icons/icon-192.png",
+  "/icons/apple-touch-icon.png",
+  "/manifest.webmanifest",
+]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll([...STATIC_ASSETS])).then(() => self.skipWaiting()));

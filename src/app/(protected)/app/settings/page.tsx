@@ -9,6 +9,7 @@ import { WorkCategoriesSettings } from "@/components/settings/work-categories-se
 import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { requireUser } from "@/lib/supabase/session";
+import { getCurrentProfile } from "@/lib/supabase/profile";
 import { isDemoMode } from "@/lib/demo";
 
 const feedback: Record<string, { ok: boolean; text: string }> = {
@@ -45,9 +46,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     categories = [];
     schedule = { id: "demo", name: "שגרת עבודה", effective_from: today, work_schedule_days: Array.from({ length: 7 }, (_, weekday) => ({ weekday, is_workday: weekday <= 4, expected_start_time: weekday <= 4 ? "08:30:00" : null, expected_end_time: weekday <= 4 ? "17:00:00" : null, target_minutes: weekday <= 4 ? 510 : 0 })) };
   } else {
-    const supabase = await createClient();
+    const [cachedProfile, supabase] = await Promise.all([getCurrentProfile(), createClient()]);
     const results = await Promise.all([
-      supabase.from("profiles").select("username,full_name").eq("id", user.id).single(),
       supabase.from("reminder_settings").select("reminder_type,enabled,local_time"),
       supabase.from("employment_terms").select("mode,hourly_rate,monthly_salary,effective_from").order("effective_from", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("leave_entries").select("id,leave_type,start_date,end_date").eq("status", "approved").order("start_date", { ascending: false }).limit(5),
@@ -56,13 +56,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       supabase.from("work_schedule_versions").select("id,name,effective_from,work_schedule_days(weekday,is_workday,expected_start_time,expected_end_time,target_minutes)").order("effective_from", { ascending: false }).limit(1).maybeSingle(),
     ]);
     requireSuccessfulQueries("settings", results);
-    profile = results[0].data;
-    reminders = results[1].data;
-    terms = results[2].data;
-    leaves = results[3].data;
-    exceptions = results[4].data;
-    categories = results[5].data ?? [];
-    schedule = results[6].data as ScheduleRow | null;
+    profile = cachedProfile;
+    reminders = results[0].data;
+    terms = results[1].data;
+    leaves = results[2].data;
+    exceptions = results[3].data;
+    categories = results[4].data ?? [];
+    schedule = results[5].data as ScheduleRow | null;
   }
 
   const reminder = (type: string) => reminders?.find((row) => row.reminder_type === type);

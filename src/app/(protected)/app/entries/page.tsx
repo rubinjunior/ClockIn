@@ -3,7 +3,7 @@ import { CalendarClock, FilePenLine, Tag } from "lucide-react";
 import { EntryForm, type EntryFormCategory } from "@/components/entries/entry-form";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
-import { requireUser } from "@/lib/supabase/session";
+import { getCurrentProfile } from "@/lib/supabase/profile";
 import { formatLocalDate, formatMinutes, formatTime } from "@/lib/formatting";
 import { demoEntries, isDemoMode } from "@/lib/demo";
 import { he } from "@/lib/i18n/he";
@@ -22,7 +22,6 @@ type EntryRow = {
 };
 
 export default async function EntriesPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
-  const user = await requireUser();
   const params = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : israelMonth();
   const start = month + "-01T00:00:00.000Z";
@@ -48,17 +47,16 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
     }));
     categories = [];
   } else {
-    const supabase = await createClient();
-    const [entriesResult, categoriesResult, profileResult] = await Promise.all([
+    const [profile, supabase] = await Promise.all([getCurrentProfile(), createClient()]);
+    const [entriesResult, categoriesResult] = await Promise.all([
       supabase.from("time_entries").select("id,clock_in,clock_out,source,note,edit_reason,category_id,updated_at,created_at").gte("clock_in", start).lt("clock_in", end.toISOString()).is("deleted_at", null).order("clock_in", { ascending: false }),
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
-      supabase.from("profiles").select("timezone").eq("id", user.id).single(),
     ]);
-    requireSuccessfulQueries("entries", [entriesResult, categoriesResult, profileResult]);
+    requireSuccessfulQueries("entries", [entriesResult, categoriesResult]);
     entries = entriesResult.data;
     error = entriesResult.error;
     categories = (categoriesResult.data ?? []).map((category) => ({ id: category.id, name: category.name, isActive: category.is_active }));
-    timezone = profileResult.data?.timezone ?? timezone;
+    timezone = profile.timezone;
   }
 
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));

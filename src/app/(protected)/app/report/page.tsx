@@ -7,7 +7,7 @@ import { SummaryCard } from "@/components/dashboard/summary-card";
 import { EntryForm, type EditableEntry, type EntryFormCategory } from "@/components/entries/entry-form";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
-import { requireUser } from "@/lib/supabase/session";
+import { getCurrentProfile } from "@/lib/supabase/profile";
 import { calculateMonthlyBalance } from "@/lib/time/calculations";
 import { summarizeCategorizedSessions } from "@/lib/reports/category-summary";
 import { formatCurrency, formatMinutes, formatTime } from "@/lib/formatting";
@@ -73,7 +73,6 @@ function editableEntry(entry: ReportEntry, timezone: string): EditableEntry {
 }
 
 export default async function ReportPage({ searchParams }: { searchParams: Promise<{ month?: string; mode?: string; view?: string; editDate?: string }> }) {
-  const user = await requireUser();
   const params = await searchParams;
   const current = israelMonth();
   const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : current;
@@ -102,10 +101,8 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
     days = demoReportRows(month).map((day) => ({ ...day, holidayLabel: null, shortenedDay: false, provisional: day.date === today }));
     compensationTerms = [{ effectiveFrom: start, effectiveTo: null, enabled: true, mode: "hourly", hourlyRate: 62.5, monthlySalary: null }];
   } else {
-    const supabase = await createClient();
-    const profile = await supabase.from("profiles").select("timezone").eq("id", user.id).single();
-    requireSuccessfulQueries("report-profile", [profile]);
-    timezone = profile.data?.timezone ?? timezone;
+    const [profile, supabase] = await Promise.all([getCurrentProfile(), createClient()]);
+    timezone = profile.timezone;
     const startsAt = fromZonedTime(start + "T00:00:00", timezone).toISOString();
     const endsAt = fromZonedTime(endExclusiveDate.toISOString().slice(0, 10) + "T00:00:00", timezone).toISOString();
 

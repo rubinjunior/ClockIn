@@ -10,6 +10,7 @@ import { he } from "@/lib/i18n/he";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { requireUser } from "@/lib/supabase/session";
+import { getCurrentProfile } from "@/lib/supabase/profile";
 import { demoEntries, isDemoMode } from "@/lib/demo";
 import { getIsraelCalendarRules } from "@/lib/holidays/israel";
 import { applyIsraelCalendar } from "@/lib/reports/israel-calendar";
@@ -66,10 +67,8 @@ export default async function DashboardPage() {
     recent = demoEntries().map((entry) => ({ id: entry.id, clock_in: entry.clockIn, clock_out: entry.clockOut }));
     weeklyWorked = recent.reduce((total, entry) => total + (entry.clock_out ? Math.round((new Date(entry.clock_out).getTime() - new Date(entry.clock_in).getTime()) / 60000) : 0), 0);
   } else {
+    profile = await getCurrentProfile();
     const supabase = await createClient();
-    const profileResult = await supabase.from("profiles").select("username,timezone").eq("id", user.id).single();
-    requireSuccessfulQueries("dashboard-profile", [profileResult]);
-    profile = profileResult.data;
     const timezone = profile?.timezone ?? "Asia/Jerusalem";
     const localNow = toZonedTime(new Date(), timezone);
     const today = format(localNow, "yyyy-MM-dd");

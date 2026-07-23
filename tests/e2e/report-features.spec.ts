@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+function israelToday() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
 
 test("דוח ריק מתחיל באפס ומאפשר מעבר ללוח שנה", async ({ page }) => {
   await page.goto("/app/report?month=2026-07");
@@ -59,9 +64,10 @@ test("שכר משוער מחובר להגדרת השכר", async ({ page }) => {
 });
 
 test("היום הנוכחי מסומן בתהליך ולא כחוסר", async ({ page }) => {
-  await page.goto("/app/report?month=2026-07&view=list");
+  const today = israelToday();
+  await page.goto(`/app/report?month=${today.slice(0, 7)}&view=list`);
   const desktop = (page.viewportSize()?.width ?? 0) >= 768;
-  const day = desktop ? page.locator('tr[data-date="2026-07-22"]') : page.locator('[data-report-date="2026-07-22"]:visible');
+  const day = desktop ? page.locator(`tr[data-date="${today}"]`) : page.locator(`[data-report-date="${today}"]:visible`);
   await expect(day.getByText("בתהליך", { exact: true })).toBeVisible();
 });
 
