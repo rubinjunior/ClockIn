@@ -77,3 +77,36 @@ test("מלוח השנה אפשר להגיע ישירות לעריכת היום",
   await expect(page).toHaveURL(/view=list&editDate=2026-07-20$/);
   await expect(page.locator('[data-report-date="2026-07-20"]:visible')).toBeFocused();
 });
+
+test("הדוח מפריד בין יעד עד היום לתקן החודשי", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07");
+  await expect(page.getByRole("heading", { name: "מאזן נכון להיום" })).toBeVisible();
+  await expect(page.getByText("יעד עד היום", { exact: true })).toBeVisible();
+  await expect(page.getByText("תקן חודשי מלא", { exact: true })).toBeVisible();
+  await expect(page.getByText("ימי עבודה שנותרו", { exact: true })).toBeVisible();
+  await page.getByText("איך חושב התקן?", { exact: true }).click();
+  await expect(page.getByText("ימי תקן בחודש", { exact: true })).toBeVisible();
+});
+
+test("בחירת שבוע מסננת את הפירוט היומי", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07");
+  await page.getByRole("link").filter({ hasText: "שבוע 1" }).first().click();
+  await expect(page).toHaveURL(/week=2026-06-28/);
+  await expect(page.getByText("הפירוט מסונן: שבוע 1", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-date]:visible")).toHaveCount(4);
+});
+
+test("התראת דיווח חסר מובילה ליום הרלוונטי", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07");
+  await page.getByRole("link").filter({ hasText: "חסר דיווח" }).first().click();
+  await expect(page).toHaveURL(/view=list&editDate=2026-07-/);
+  await expect(page.locator('[data-report-date]:focus')).toBeVisible();
+});
+
+test("יום עתידי מציג תקן אבל לא מאזן שלילי", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07&view=list");
+  const future = page.locator('[data-date="2026-07-26"]:visible');
+  await expect(future.getByText("עתידי", { exact: true })).toBeVisible();
+  await expect(future.getByText("08:30", { exact: true })).toBeVisible();
+  await expect(future.getByText("00:00", { exact: true }).first()).toBeVisible();
+});

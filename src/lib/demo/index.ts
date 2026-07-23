@@ -24,10 +24,10 @@ export function demoReportRows(month: string) {
     const date = day.toISOString().slice(0, 10);
     const workday = day.getUTCDay() <= 4;
     const future = date > today;
-    const expectedMinutes = workday && !future ? 510 : 0;
+    const expectedMinutes = workday ? 510 : 0;
     const workedMinutes = 0;
-    const finalBalanceMinutes = workedMinutes - expectedMinutes;
-    rows.push({ date, expectedMinutes, workedMinutes, creditedAbsenceMinutes: 0, manualAdjustmentMinutes: 0, finalBalanceMinutes, missingMinutes: Math.max(0, -finalBalanceMinutes), overtimeMinutes: Math.max(0, finalBalanceMinutes), sessions: workedMinutes ? 1 : 0, future });
+    const finalBalanceMinutes = future ? 0 : workedMinutes - expectedMinutes;
+    rows.push({ date, expectedMinutes, workedMinutes, creditedAbsenceMinutes: 0, manualAdjustmentMinutes: 0, finalBalanceMinutes, missingMinutes: future ? 0 : Math.max(0, -finalBalanceMinutes), overtimeMinutes: Math.max(0, finalBalanceMinutes), sessions: workedMinutes ? 1 : 0, future });
   }
   return rows;
 }

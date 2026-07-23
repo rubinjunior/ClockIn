@@ -8,6 +8,9 @@ describe("סיכומי קטגוריות", () => {
       { clockIn: "2026-07-21T06:00:00Z", clockOut: "2026-07-21T08:00:00Z", categoryId: null },
     ], "Asia/Jerusalem", "2026-07-01", "2026-07-31");
     expect(result.totals).toEqual({ home: 480 });
+    expect(result.dayCounts).toEqual({ home: 1 });
+    expect(result.uncategorizedMinutes).toBe(120);
+    expect(result.uncategorizedDays).toBe(1);
   });
 
   it("מפצל דיווח שחוצה חצות לפי אזור הזמן", () => {

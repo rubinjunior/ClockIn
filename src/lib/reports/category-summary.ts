@@ -9,17 +9,36 @@ export type CategorizedSession = {
 export function summarizeCategorizedSessions(entries: CategorizedSession[], timezone: string, startDate: string, endDate: string) {
   const totals: Record<string, number> = {};
   const byDate: Record<string, Record<string, number>> = {};
+  const datesByCategory: Record<string, Set<string>> = {};
+  const uncategorizedDates = new Set<string>();
+  let uncategorizedMinutes = 0;
+  const uncategorizedByDate: Record<string, number> = {};
 
   for (const entry of entries) {
-    if (!entry.categoryId || !entry.clockOut) continue;
+    if (!entry.clockOut) continue;
     const segments = splitSessionByLocalDate(entry, timezone);
     for (const [date, minutes] of Object.entries(segments)) {
       if (date < startDate || date > endDate) continue;
+      if (!entry.categoryId) {
+        uncategorizedMinutes += minutes;
+        uncategorizedDates.add(date);
+        uncategorizedByDate[date] = (uncategorizedByDate[date] ?? 0) + minutes;
+        continue;
+      }
       totals[entry.categoryId] = (totals[entry.categoryId] ?? 0) + minutes;
       byDate[date] ??= {};
       byDate[date][entry.categoryId] = (byDate[date][entry.categoryId] ?? 0) + minutes;
+      datesByCategory[entry.categoryId] ??= new Set();
+      datesByCategory[entry.categoryId].add(date);
     }
   }
 
-  return { totals, byDate };
+  return {
+    totals,
+    byDate,
+    dayCounts: Object.fromEntries(Object.entries(datesByCategory).map(([categoryId, dates]) => [categoryId, dates.size])),
+    uncategorizedMinutes,
+    uncategorizedDays: uncategorizedDates.size,
+    uncategorizedByDate,
+  };
 }
