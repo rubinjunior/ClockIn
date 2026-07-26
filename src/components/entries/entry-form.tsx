@@ -43,6 +43,7 @@ export function EntryForm({ categories, entry, initialDate, compact = false, ari
     const clockOut = String(formData.get("clockOutLocal"));
     formData.set("clockIn", fromZonedTime(clockIn, timezone).toISOString());
     formData.set("clockOut", fromZonedTime(clockOut, timezone).toISOString());
+    if (!entry) formData.set("reason", he.entries.manual);
     startTransition(async () => {
       const result = await saveEntry(formData);
       setMessage(result.message ?? "");
@@ -90,7 +91,7 @@ export function EntryForm({ categories, entry, initialDate, compact = false, ari
             </select>
           </label>
           <Field label={he.entries.note + " (" + he.entries.optional + ")"} name="note" defaultValue={entry?.note ?? ""} />
-          <Field label={entry ? he.entries.editReason : he.entries.reason} name="reason" required />
+          {entry && <Field label={he.entries.editReason} name="reason" required />}
           {message && <p role="alert" className="rounded-xl bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">{message}</p>}
           <div className="flex flex-wrap gap-3">
             <button className="button-primary flex-1" disabled={pending}>{pending ? he.entries.saving : he.common.save}</button>

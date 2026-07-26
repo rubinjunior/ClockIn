@@ -8,6 +8,7 @@ import { formatLocalDate, formatMinutes, formatTime } from "@/lib/formatting";
 import { demoEntries, isDemoMode } from "@/lib/demo";
 import { he } from "@/lib/i18n/he";
 import { israelMonth } from "@/lib/time/israel";
+import { monthUtcRange } from "@/lib/time/month-range";
 
 type EntryRow = {
   id: string;
@@ -24,9 +25,7 @@ type EntryRow = {
 export default async function EntriesPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const params = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : israelMonth();
-  const start = month + "-01T00:00:00.000Z";
-  const end = new Date(start);
-  end.setUTCMonth(end.getUTCMonth() + 1);
+  const { startsAt, endsAt } = monthUtcRange(month);
 
   let entries: EntryRow[] | null;
   let categories: EntryFormCategory[];
@@ -49,7 +48,7 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
   } else {
     const [profile, supabase] = await Promise.all([getCurrentProfile(), createClient()]);
     const [entriesResult, categoriesResult] = await Promise.all([
-      supabase.from("time_entries").select("id,clock_in,clock_out,source,note,edit_reason,category_id,updated_at,created_at").gte("clock_in", start).lt("clock_in", end.toISOString()).is("deleted_at", null).order("clock_in", { ascending: false }),
+      supabase.from("time_entries").select("id,clock_in,clock_out,source,note,edit_reason,category_id,updated_at,created_at").gte("clock_in", startsAt).lt("clock_in", endsAt).is("deleted_at", null).order("clock_in", { ascending: false }),
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
     ]);
     requireSuccessfulQueries("entries", [entriesResult, categoriesResult]);

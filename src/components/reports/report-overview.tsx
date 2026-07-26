@@ -39,9 +39,9 @@ function weekState(week: ReportWeek) {
   return { label: he.report.weekCompleted, className: "bg-[var(--success-soft)] text-[var(--success)]" };
 }
 
-function alertCopy(alert: ReportAlert, analytics: ReportAnalytics) {
+function alertCopy(alert: ReportAlert, analytics: ReportAnalytics, groupCount = 1) {
   if (alert.kind === "incomplete") return [he.report.alertIncompleteTitle, he.report.alertIncompleteDetail];
-  if (alert.kind === "missingReport") return [he.report.alertMissingTitle, he.report.alertMissingDetail];
+  if (alert.kind === "missingReport") return [groupCount > 1 ? `${groupCount} ${he.report.alertMissingGroupTitle}` : he.report.alertMissingTitle, he.report.alertMissingDetail];
   if (alert.kind === "leaveWork") return [he.report.alertLeaveWorkTitle, he.report.alertLeaveWorkDetail];
   if (alert.kind === "nonWorkday") return [he.report.alertNonWorkTitle, he.report.alertNonWorkDetail];
   if (alert.kind === "overlap") return [he.report.alertOverlapTitle, he.report.alertOverlapDetail];
@@ -55,16 +55,18 @@ function AlertIcon({ severity }: { severity: ReportAlert["severity"] }) {
   return <Info aria-hidden size={20} />;
 }
 
-function AlertRow({ alert, analytics, month, full }: { alert: ReportAlert; analytics: ReportAnalytics; month: string; full: boolean }) {
-  const [title, detail] = alertCopy(alert, analytics);
-  const href = alert.kind === "incomplete"
+function AlertRow({ alert, analytics, month, full, groupCount = 1 }: { alert: ReportAlert; analytics: ReportAnalytics; month: string; full: boolean; groupCount?: number }) {
+  const [title, detail] = alertCopy(alert, analytics, groupCount);
+  const href = alert.kind === "missingReport" && groupCount > 1
+    ? reportHref(month, full, { status: "missingReport" })
+    : alert.kind === "incomplete"
     ? "/app"
     : alert.date
       ? reportHref(month, full, { editDate: alert.date })
       : alert.weekStart
         ? reportHref(month, full, { week: alert.weekStart })
         : `/app/entries?month=${month}`;
-  const action = alert.kind === "incomplete" ? he.report.openClock : alert.date ? he.report.openDay : alert.weekStart ? he.report.openWeek : he.report.openEntries;
+  const action = alert.kind === "missingReport" && groupCount > 1 ? he.report.openMissingReports : alert.kind === "incomplete" ? he.report.openClock : alert.date ? he.report.openDay : alert.weekStart ? he.report.openWeek : he.report.openEntries;
   const tone = alert.severity === "critical"
     ? "border-[var(--error)]/20 bg-[var(--error-soft)] text-[var(--error)]"
     : alert.severity === "warning"
@@ -95,8 +97,12 @@ export function ReportOverview({
   composition: CompositionItem[];
 }) {
   const positive = analytics.balanceToDateMinutes >= 0;
-  const visibleAlerts = analytics.alerts.slice(0, 5);
-  const hiddenAlerts = analytics.alerts.slice(5);
+  const missingReportAlerts = analytics.alerts.filter((alert) => alert.kind === "missingReport");
+  const groupedAlerts: ReportAlert[] = missingReportAlerts.length > 1
+    ? [{ ...missingReportAlerts[0], id: "missing-report-group", date: undefined }, ...analytics.alerts.filter((alert) => alert.kind !== "missingReport")]
+    : analytics.alerts;
+  const visibleAlerts = groupedAlerts.slice(0, 5);
+  const hiddenAlerts = groupedAlerts.slice(5);
 
   return (
     <div className="grid gap-6">
@@ -177,8 +183,8 @@ export function ReportOverview({
           <div className="mt-5 flex min-h-20 items-center gap-3 rounded-2xl bg-[var(--success-soft)] p-4 text-[var(--success)]"><CircleCheckBig aria-hidden /><strong>{he.report.noAlerts}</strong></div>
         ) : (
           <div className="mt-5 grid gap-2">
-            {visibleAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} full={full} />)}
-            {hiddenAlerts.length > 0 && <details className="rounded-2xl border border-[var(--border-soft)] p-3"><summary className="cursor-pointer font-bold text-[var(--primary)]">{he.report.moreAlerts} ({hiddenAlerts.length})</summary><div className="mt-3 grid gap-2">{hiddenAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} full={full} />)}</div></details>}
+            {visibleAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} full={full} groupCount={alert.kind === "missingReport" ? missingReportAlerts.length : 1} />)}
+            {hiddenAlerts.length > 0 && <details className="rounded-2xl border border-[var(--border-soft)] p-3"><summary className="cursor-pointer font-bold text-[var(--primary)]">{he.report.moreAlerts} ({hiddenAlerts.length})</summary><div className="mt-3 grid gap-2">{hiddenAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} full={full} groupCount={alert.kind === "missingReport" ? missingReportAlerts.length : 1} />)}</div></details>}
           </div>
         )}
       </section>

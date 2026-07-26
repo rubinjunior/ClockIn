@@ -4,7 +4,8 @@ import { CalendarDays, ChevronLeft, ChevronRight, Coins, LayoutList, Pencil } fr
 import { ReportActions } from "@/components/reports/report-actions";
 import { ReportDayFocus } from "@/components/reports/report-day-focus";
 import { ReportOverview, type CompositionItem } from "@/components/reports/report-overview";
-import { EntryForm, type EditableEntry, type EntryFormCategory } from "@/components/entries/entry-form";
+import { type EditableEntry, type EntryFormCategory } from "@/components/entries/entry-form";
+import { ReportEntryEditorProvider, ReportEntryTrigger } from "@/components/reports/report-entry-editor";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { getCurrentProfile } from "@/lib/supabase/profile";
@@ -218,6 +219,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   }
 
   return (
+    <ReportEntryEditorProvider categories={categories} timezone={timezone}>
     <div className="grid gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div><p className="muted text-sm">{he.report.pageSubtitle}</p><h1 className="text-3xl font-extrabold">{he.report.title}</h1></div>
@@ -235,7 +237,6 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
         <Link href={reportHref(month, true, view)} className={"min-h-11 rounded-full px-5 py-2.5 font-bold " + (full ? "bg-white text-[var(--primary)] shadow-sm" : "muted")}>{he.report.fullMonth}</Link>
       </div>
 
-      <ReportOverview analytics={analytics} month={month} full={full} composition={composition} />
 
       {compensation.visible && <section className="card flex flex-wrap items-center gap-4 p-5" aria-label={he.report.compensation}>
         <span className="grid size-11 place-items-center rounded-2xl bg-[var(--success-soft)] text-[var(--success)]"><Coins aria-hidden /></span>
@@ -256,14 +257,17 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
         {view === "calendar" ? (
           <CalendarView days={days} statusByDate={analytics.statusByDate} month={month} full={full} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} />
         ) : (
-          <ListView focusDate={focusDate} days={visibleDays} statusByDate={analytics.statusByDate} filtered={Boolean(filterLabel)} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} categories={categories} timezone={timezone} />
+          <ListView focusDate={focusDate} days={visibleDays} statusByDate={analytics.statusByDate} filtered={Boolean(filterLabel)} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} timezone={timezone} />
         )}
       </section>
+
+      <ReportOverview analytics={analytics} month={month} full={full} composition={composition} />
     </div>
+    </ReportEntryEditorProvider>
   );
 }
 
-function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, categoryByDate, categoryNames, categories, timezone }: {
+function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, categoryByDate, categoryNames, timezone }: {
   focusDate?: string;
   days: ReportDay[];
   statusByDate: Record<string, ReportDayStatus>;
@@ -271,42 +275,53 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, cate
   entriesByDate: Record<string, ReportEntry[]>;
   categoryByDate: Record<string, Record<string, number>>;
   categoryNames: Map<string, string>;
-  categories: EntryFormCategory[];
   timezone: string;
 }) {
   if (!days.length) return <div className="card p-8 text-center"><p className="font-bold">{filtered ? he.report.filteredEmpty : he.report.empty}</p></div>;
   const headers = [he.report.date, he.report.status, he.report.expected, he.report.worked, he.report.adjustments, he.report.balance, he.report.entriesCount, he.report.edit];
+  const grid = "md:grid-cols-[1.35fr_1.2fr_repeat(6,minmax(0,1fr))]";
   return (
     <>
       <ReportDayFocus date={focusDate} />
-      <div className="grid gap-3 md:hidden">
-        {days.map((day) => <DayCard key={day.date} day={day} status={statusByDate[day.date]} entries={entriesByDate[day.date] ?? []} categoryMinutes={categoryByDate[day.date] ?? {}} categoryNames={categoryNames} categories={categories} timezone={timezone} />)}
-      </div>
-      <div className="card hidden overflow-hidden md:block">
-        <table className="w-full table-fixed border-collapse text-sm">
-          <thead className="bg-[var(--primary-soft)] text-[var(--primary)]">
-            <tr>{headers.map((header, index) => <th className={"p-3 align-middle " + (index < 2 ? "text-start" : "text-center")} key={header}>{header}</th>)}</tr>
-          </thead>
-          <tbody>
-            {days.map((day) => (
-              <tr tabIndex={-1} data-report-date={day.date} data-date={day.date} key={day.date} className="border-t border-[var(--border-soft)]">
-                <td className="p-3 text-start align-middle font-bold">{new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "numeric" }).format(new Date(day.date + "T12:00:00Z"))}</td>
-                <td className="p-3 text-start align-middle"><StatusBadge status={statusByDate[day.date]} label={day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])} /></td>
-                <td className="p-3 text-center align-middle"><MinuteValue minutes={day.expectedMinutes} /></td>
-                <td className="p-3 text-center align-middle"><MinuteValue minutes={day.workedMinutes} /></td>
-                <td className="p-3 text-center align-middle"><MinuteValue minutes={day.manualAdjustmentMinutes} /></td>
-                <td className="p-3 text-center align-middle font-bold"><MinuteValue minutes={day.finalBalanceMinutes} /></td>
-                <td className="p-3 text-center align-middle">{day.sessions}</td>
-                <td className="p-2 text-center align-middle"><DayEntryActions date={day.date} entries={entriesByDate[day.date] ?? []} categories={categories} timezone={timezone} allowAdd={!day.future} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="grid gap-3 md:card md:block md:overflow-hidden" role="table" aria-label={he.report.daily}>
+        <div role="row" className={`hidden bg-[var(--primary-soft)] text-sm text-[var(--primary)] md:grid ${grid}`}>
+          {headers.map((header, index) => <div role="columnheader" className={"p-3 font-bold align-middle " + (index < 2 ? "text-start" : "text-center")} key={header}>{header}</div>)}
+        </div>
+        {days.map((day) => {
+          const entries = entriesByDate[day.date] ?? [];
+          const categoryMinutes = categoryByDate[day.date] ?? {};
+          return (
+            <article
+              role="row"
+              tabIndex={-1}
+              data-report-date={day.date}
+              data-date={day.date}
+              key={day.date}
+              className={`card grid grid-cols-3 gap-3 p-4 md:rounded-none md:border-x-0 md:border-b-0 md:p-0 md:shadow-none md:grid ${grid}`}
+            >
+              <div role="cell" data-cell="date" className="col-span-2 text-start md:col-auto md:p-3">
+                <strong>{new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "numeric" }).format(new Date(day.date + "T12:00:00Z"))}</strong>
+                <span className="muted mt-0.5 block text-xs md:hidden">{day.sessions ? day.sessions + " " + he.report.entriesCount : he.report.noEntries}</span>
+              </div>
+              <div role="cell" data-cell="status" className="text-end md:p-3 md:text-start"><StatusBadge status={statusByDate[day.date]} label={day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])} /></div>
+              <DailyValue label={he.report.expected} minutes={day.expectedMinutes} cell="expected" />
+              <DailyValue label={he.report.worked} minutes={day.workedMinutes} cell="worked" />
+              <div role="cell" data-cell="adjustments" className="hidden p-3 text-center md:block"><MinuteValue minutes={day.manualAdjustmentMinutes} /></div>
+              <DailyValue label={he.report.balance} minutes={day.finalBalanceMinutes} cell="balance" strong />
+              <div role="cell" data-cell="sessions" className="hidden p-3 text-center md:block">{day.sessions}</div>
+              {Object.keys(categoryMinutes).length > 0 && <div className="col-span-3 flex flex-wrap gap-2 md:hidden">{Object.entries(categoryMinutes).map(([categoryId, minutes]) => <span key={categoryId} className="rounded-full bg-[var(--primary-soft)] px-3 py-1 text-xs font-bold text-[var(--primary)]">{categoryNames.get(categoryId)} · {formatMinutes(minutes)}</span>)}</div>}
+              <div role="cell" data-cell="actions" className="col-span-3 border-t border-[var(--border-soft)] pt-3 text-center md:col-auto md:border-0 md:p-2"><DayEntryActions date={day.date} entries={entries} timezone={timezone} allowAdd={!day.future} /></div>
+            </article>
+          );
+        })}
       </div>
     </>
   );
 }
 
+function DailyValue({ label, minutes, cell, strong = false }: { label: string; minutes: number; cell: string; strong?: boolean }) {
+  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><span className={strong ? "font-bold" : undefined}><MinuteValue minutes={minutes} /></span></div>;
+}
 function CalendarView({ days, statusByDate, month, full, entriesByDate, categoryByDate, categoryNames }: {
   days: ReportDay[];
   statusByDate: Record<string, ReportDayStatus>;
@@ -344,37 +359,11 @@ function CalendarView({ days, statusByDate, month, full, entriesByDate, category
   );
 }
 
-function DayCard({ day, status, entries, categoryMinutes, categoryNames, categories, timezone }: {
-  day: ReportDay;
-  status: ReportDayStatus;
-  entries: ReportEntry[];
-  categoryMinutes: Record<string, number>;
-  categoryNames: Map<string, string>;
-  categories: EntryFormCategory[];
-  timezone: string;
-}) {
-  return (
-    <article tabIndex={-1} data-report-date={day.date} data-date={day.date} className="card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div><h3 className="font-extrabold">{new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long" }).format(new Date(day.date + "T12:00:00Z"))}</h3><p className="muted text-sm">{day.sessions ? day.sessions + " " + he.report.entriesCount : he.report.noEntries}</p></div>
-        <StatusBadge status={status} label={day.holidayLabel ?? reportStatusLabel(status)} />
-      </div>
-      <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
-        <div><dt className="muted text-xs">{he.report.expected}</dt><dd className="font-bold"><MinuteValue minutes={day.expectedMinutes} /></dd></div>
-        <div><dt className="muted text-xs">{he.report.worked}</dt><dd className="font-bold"><MinuteValue minutes={day.workedMinutes} /></dd></div>
-        <div><dt className="muted text-xs">{he.report.balance}</dt><dd className="font-bold"><MinuteValue minutes={day.finalBalanceMinutes} /></dd></div>
-      </dl>
-      {Object.keys(categoryMinutes).length > 0 && <div className="mt-3 flex flex-wrap gap-2">{Object.entries(categoryMinutes).map(([categoryId, minutes]) => <span key={categoryId} className="rounded-full bg-[var(--primary-soft)] px-3 py-1 text-xs font-bold text-[var(--primary)]">{categoryNames.get(categoryId)} · {formatMinutes(minutes)}</span>)}</div>}
-      <div className="mt-3 border-t border-[var(--border-soft)] pt-3"><DayEntryActions date={day.date} entries={entries} categories={categories} timezone={timezone} allowAdd={!day.future} /></div>
-    </article>
-  );
-}
-
-function DayEntryActions({ date, entries, categories, timezone, allowAdd }: { date: string; entries: ReportEntry[]; categories: EntryFormCategory[]; timezone: string; allowAdd: boolean }) {
+function DayEntryActions({ date, entries, timezone, allowAdd }: { date: string; entries: ReportEntry[]; timezone: string; allowAdd: boolean }) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-1">
-      {entries.map((entry) => <EntryForm key={entry.id} compact ariaLabel={he.report.editEntry + " " + formatTime(entry.clock_in)} categories={categories} timezone={timezone} entry={editableEntry(entry, timezone)} />)}
-      {allowAdd && <EntryForm compact ariaLabel={he.entries.add + " " + date} categories={categories} timezone={timezone} initialDate={date} />}
+      {entries.map((entry) => <ReportEntryTrigger key={entry.id} ariaLabel={he.report.editEntry + " " + formatTime(entry.clock_in)} entry={editableEntry(entry, timezone)} />)}
+      {allowAdd && <ReportEntryTrigger ariaLabel={he.entries.add + " " + date} initialDate={date} />}
     </div>
   );
 }
