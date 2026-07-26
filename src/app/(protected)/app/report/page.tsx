@@ -5,7 +5,7 @@ import { ReportActions } from "@/components/reports/report-actions";
 import { ReportDayFocus } from "@/components/reports/report-day-focus";
 import { ReportOverview, type CompositionItem } from "@/components/reports/report-overview";
 import { type EditableEntry, type EntryFormCategory } from "@/components/entries/entry-form";
-import { ReportEntryEditorProvider, ReportEntryTrigger } from "@/components/reports/report-entry-editor";
+import { EntryEditorProvider, EntryEditorTrigger } from "@/components/entries/entry-editor";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { getCurrentProfile } from "@/lib/supabase/profile";
@@ -219,7 +219,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   }
 
   return (
-    <ReportEntryEditorProvider categories={categories} timezone={timezone}>
+    <EntryEditorProvider categories={categories} timezone={timezone}>
     <div className="grid gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div><p className="muted text-sm">{he.report.pageSubtitle}</p><h1 className="text-3xl font-extrabold">{he.report.title}</h1></div>
@@ -263,7 +263,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
 
       <ReportOverview analytics={analytics} month={month} full={full} composition={composition} />
     </div>
-    </ReportEntryEditorProvider>
+    </EntryEditorProvider>
   );
 }
 
@@ -362,8 +362,8 @@ function CalendarView({ days, statusByDate, month, full, entriesByDate, category
 function DayEntryActions({ date, entries, timezone, allowAdd }: { date: string; entries: ReportEntry[]; timezone: string; allowAdd: boolean }) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-1">
-      {entries.map((entry) => <ReportEntryTrigger key={entry.id} ariaLabel={he.report.editEntry + " " + formatTime(entry.clock_in)} entry={editableEntry(entry, timezone)} />)}
-      {allowAdd && <ReportEntryTrigger ariaLabel={he.entries.add + " " + date} initialDate={date} />}
+      {entries.map((entry) => <EntryEditorTrigger key={entry.id} ariaLabel={he.report.editEntry + " " + formatTime(entry.clock_in)} entry={editableEntry(entry, timezone)} />)}
+      {allowAdd && <EntryEditorTrigger ariaLabel={he.entries.add + " " + date} initialDate={date} />}
     </div>
   );
 }

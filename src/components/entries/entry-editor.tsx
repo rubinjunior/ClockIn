@@ -26,7 +26,7 @@ type EditorContextValue = {
 
 const EditorContext = createContext<EditorContextValue | null>(null);
 
-export function ReportEntryEditorProvider({
+export function EntryEditorProvider({
   categories,
   timezone,
   children,
@@ -53,7 +53,7 @@ export function ReportEntryEditorProvider({
     <EditorContext.Provider value={{ open: setSelection }}>
       {children}
       {selection && (
-        <ReportEntryDialog
+        <EntryDialog
           key={selection.entry?.id ?? selection.initialDate}
           dialogRef={dialog}
           categories={categories}
@@ -75,28 +75,31 @@ export function ReportEntryEditorProvider({
   );
 }
 
-export function ReportEntryTrigger({
+export function EntryEditorTrigger({
   entry,
   initialDate,
   ariaLabel,
+  showLabel = false,
 }: EditorSelection & {
   ariaLabel: string;
+  showLabel?: boolean;
 }) {
   const context = useContext(EditorContext);
-  if (!context) throw new Error("report_entry_editor_provider_missing");
+  if (!context) throw new Error("entry_editor_provider_missing");
+  const label = entry ? he.entries.edit : he.entries.add;
   return (
     <button
       type="button"
       aria-label={ariaLabel}
-      className="grid size-11 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]"
+      className={showLabel ? "button-primary" : "grid size-11 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]"}
       onClick={() => context.open({ entry, initialDate })}
     >
-      {entry ? <Pencil aria-hidden size={17} /> : <Plus aria-hidden size={17} />}
+      {entry ? <Pencil aria-hidden size={showLabel ? 20 : 17} /> : <Plus aria-hidden size={showLabel ? 20 : 17} />}
+      {showLabel && <span>{label}</span>}
     </button>
   );
 }
-
-function ReportEntryDialog({
+function EntryDialog({
   dialogRef,
   categories,
   timezone,
