@@ -7,6 +7,10 @@ test("דיווח חדש נפתח בלי לבקש סיבת שינוי", async ({ 
   await expect(dialog.getByRole("heading", { name: "הוספת דיווח" })).toBeVisible();
   await expect(dialog.getByLabel("סיבת השינוי")).toHaveCount(0);
   await expect(dialog.getByLabel("כניסה")).toHaveAttribute("max", /T/);
+  await dialog.getByLabel("כניסה").fill("2020-01-02T09:00");
+  await dialog.getByLabel("יציאה").fill("2020-01-02T17:30");
+  await expect(dialog.getByLabel("יציאה")).toHaveAttribute("min", "2020-01-02T09:00");
+  await expect(dialog.getByText("08:30", { exact: true })).toBeVisible();
 });
 
 test("מסך השעות מציג סיכום חודשי קל ועורך יחיד", async ({ page }) => {

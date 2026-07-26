@@ -10,10 +10,11 @@ import {
   useTransition,
 } from "react";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { Clock3, Pencil, Plus, Trash2, X } from "lucide-react";
 import { deleteEntry, saveEntry } from "@/actions/entry-actions";
 import type { EditableEntry, EntryFormCategory } from "@/components/entries/entry-form";
 import { he } from "@/lib/i18n/he";
+import { formatMinutes } from "@/lib/formatting";
 
 type EditorSelection = {
   entry?: EditableEntry;
@@ -122,6 +123,12 @@ function EntryDialog({
   const { entry, initialDate } = selection;
   const defaultStart = entry?.clockInLocal ?? (initialDate ? initialDate + "T09:00" : "");
   const defaultEnd = entry?.clockOutLocal ?? (initialDate ? initialDate + "T17:00" : "");
+  const [clockInLocal, setClockInLocal] = useState(defaultStart);
+  const [clockOutLocal, setClockOutLocal] = useState(defaultEnd);
+  const durationMinutes = clockInLocal && clockOutLocal
+    ? Math.round((fromZonedTime(clockOutLocal, timezone).getTime() - fromZonedTime(clockInLocal, timezone).getTime()) / 60_000)
+    : null;
+  const invalidRange = durationMinutes !== null && durationMinutes <= 0;
 
   useEffect(() => {
     const update = () => setLatestLocal(formatInTimeZone(new Date(), timezone, "yyyy-MM-dd'T'HH:mm"));
@@ -183,10 +190,14 @@ function EntryDialog({
         </header>
         {entry && <input type="hidden" name="id" value={entry.id} />}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label={he.entries.clockIn} name="clockInLocal" type="datetime-local" defaultValue={defaultStart} max={latestLocal || undefined} required />
-          <Field label={he.entries.clockOut} name="clockOutLocal" type="datetime-local" defaultValue={defaultEnd} max={latestLocal || undefined} required />
+          <Field label={he.entries.clockIn} name="clockInLocal" type="datetime-local" value={clockInLocal} onChange={(event) => setClockInLocal(event.target.value)} max={latestLocal || undefined} required />
+          <Field label={he.entries.clockOut} name="clockOutLocal" type="datetime-local" value={clockOutLocal} onChange={(event) => setClockOutLocal(event.target.value)} min={clockInLocal || undefined} max={latestLocal || undefined} aria-invalid={invalidRange || undefined} required />
         </div>
         <p className="muted -mt-3 text-xs">{he.entries.noFuture}</p>
+        <div className={`flex min-h-16 items-center gap-3 rounded-2xl border p-3 ${invalidRange ? "border-[var(--error)]/30 bg-[var(--error-soft)] text-[var(--error)]" : "border-[var(--border-soft)] bg-[var(--background)]"}`}>
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-[var(--primary)]"><Clock3 aria-hidden size={19} /></span>
+          <div><span className="muted block text-xs">{he.entries.calculatedDuration}</span><output className="metric-value mt-0.5 block font-bold" aria-live="polite">{invalidRange ? he.entries.invalidRange : durationMinutes === null ? he.entries.selectTimes : formatMinutes(durationMinutes)}</output></div>
+        </div>
         <label className="field">
           <span>{he.entries.category}</span>
           <select className="input" name="categoryId" defaultValue={entry?.categoryId ?? ""}>
@@ -204,7 +215,7 @@ function EntryDialog({
         {entry && <Field label={he.entries.editReason} name="reason" required />}
         {message && <p role="alert" className="rounded-xl bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">{message}</p>}
         <div className="flex flex-wrap gap-3">
-          <button className="button-primary flex-1" disabled={pending}>{pending ? he.entries.saving : he.common.save}</button>
+          <button className="button-primary flex-1" disabled={pending || invalidRange}>{pending ? he.entries.saving : he.common.save}</button>
           <button type="button" className="button-secondary" disabled={pending} onClick={close}>{he.common.cancel}</button>
           {entry && (
             <button type="button" className="button-danger" disabled={pending} onClick={remove}>

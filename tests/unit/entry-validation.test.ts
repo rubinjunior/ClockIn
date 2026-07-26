@@ -12,6 +12,12 @@ describe("time entry validation", () => {
     if (!result.success) expect(result.error.issues.some((issue) => issue.message === "לא ניתן להזין שעות עתידיות")).toBe(true);
   });
 
+  it("rejects zero and negative duration reports", () => {
+    const start = new Date(Date.now() - 7_200_000);
+    expect(timeEntrySchema.safeParse(entry(start.toISOString(), start.toISOString())).success).toBe(false);
+    expect(timeEntrySchema.safeParse(entry(start.toISOString(), new Date(start.getTime() - 60_000).toISOString())).success).toBe(false);
+  });
+
   it("accepts a completed past report", () => {
     const end = new Date(Date.now() - 60_000);
     const start = new Date(end.getTime() - 3_600_000);

@@ -34,6 +34,7 @@ export async function saveWorkCategory(_: CategoryActionState, formData: FormDat
   const { error } = await query;
   if (error) return { ok: false, message: error.code === "23505" ? he.categories.duplicate : he.categories.saveFailed };
 
+  revalidatePath("/app");
   revalidatePath("/app/settings");
   revalidatePath("/app/entries");
   revalidatePath("/app/report");
@@ -47,6 +48,7 @@ export async function archiveWorkCategory(formData: FormData) {
   const auth = await authenticatedClient();
   if (!auth) return;
   await auth.supabase.from("work_categories").update({ is_active: false }).eq("id", id.data).eq("user_id", auth.user.id);
+  revalidatePath("/app");
   revalidatePath("/app/settings");
   revalidatePath("/app/entries");
   revalidatePath("/app/report");
