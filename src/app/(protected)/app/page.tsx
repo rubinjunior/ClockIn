@@ -16,11 +16,13 @@ import { getCurrentProfile } from "@/lib/supabase/profile";
 import { demoEntries, isDemoMode } from "@/lib/demo";
 import { getIsraelCalendarRules } from "@/lib/holidays/israel";
 import { applyIsraelCalendar } from "@/lib/reports/israel-calendar";
+import { completedWorkedMinutes } from "@/lib/reports/worked-minutes";
 import { calculateLeaveBalances, type ExceptionForBalance, type LeaveEntryForBalance, type ScheduleForBalance } from "@/lib/leave/balances";
 
 type DashboardReportRow = {
   work_date: string; expected_minutes: number; worked_minutes: number; credited_absence_minutes: number;
   manual_adjustment_minutes: number; final_balance_minutes: number; missing_minutes: number; overtime_minutes: number;
+  first_clock_in: string | null; last_clock_out: string | null;
   sessions: number; holiday_label: string | null; shortened_day: boolean;
 };
 type ReminderSetting = {
@@ -98,7 +100,7 @@ export default async function DashboardPage() {
     const weekDays = applyIsraelCalendar((weekResult.data ?? []).map((row: DashboardReportRow) => ({
       date: row.work_date,
       expectedMinutes: Number(row.expected_minutes) || 0,
-      workedMinutes: Number(row.worked_minutes) || 0,
+      workedMinutes: completedWorkedMinutes(row.worked_minutes, row.first_clock_in, row.last_clock_out),
       creditedAbsenceMinutes: Number(row.credited_absence_minutes) || 0,
       manualAdjustmentMinutes: Number(row.manual_adjustment_minutes) || 0,
       finalBalanceMinutes: Number(row.final_balance_minutes) || 0,

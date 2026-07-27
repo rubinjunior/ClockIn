@@ -119,6 +119,13 @@ test("התראות על ימים חסרים מקובצות ומובילות לס
   await expect(page.getByText(/הפירוט מסונן: חסר דיווח/)).toBeVisible();
 });
 
+test("יום ללא שעת התחלה או סיום מציג אפס שעות בפועל", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07&view=list");
+  const day = page.locator('[data-date="2026-07-01"]:visible');
+  await expect(day.locator('[data-cell="start"]')).toContainText("—");
+  await expect(day.locator('[data-cell="end"]')).toContainText("—");
+  await expect(day.locator('[data-cell="worked"]').getByText("00:00", { exact: true })).toBeVisible();
+});
 test("יום עתידי מציג אפס שעות ללא זמני דיווח", async ({ page }) => {
   await page.goto("/app/report?month=2026-07&view=list");
   const future = page.locator('[data-date="2026-07-30"]:visible');

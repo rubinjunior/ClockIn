@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getIsraelCalendarRules } from "@/lib/holidays/israel";
 import { applyIsraelCalendar, type CalendarAwareReportDay } from "@/lib/reports/israel-calendar";
 import { israelMonth, israelToday } from "@/lib/time/israel";
+import { completedWorkedMinutes } from "@/lib/reports/worked-minutes";
 
 type ReportRow = {
   work_date: string;
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
   const baseDays: CalendarAwareReportDay[] = originalRows.map((row) => ({
     date: row.work_date,
     expectedMinutes: Number(row.expected_minutes) || 0,
-    workedMinutes: Number(row.worked_minutes) || 0,
+    workedMinutes: completedWorkedMinutes(row.worked_minutes, row.first_clock_in, row.last_clock_out),
     creditedAbsenceMinutes: Number(row.credited_absence_minutes) || 0,
     manualAdjustmentMinutes: Number(row.manual_adjustment_minutes) || 0,
     finalBalanceMinutes: Number(row.final_balance_minutes) || 0,

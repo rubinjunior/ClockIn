@@ -19,6 +19,7 @@ import { estimateMonthlyCompensation, type CompensationTerm } from "@/lib/report
 import { type LeaveEntryForBalance } from "@/lib/leave/balances";
 import { israelMonth, israelToday } from "@/lib/time/israel";
 import { buildReportAnalytics, type ReportDayStatus } from "@/lib/reports/analytics";
+import { completedWorkedMinutes } from "@/lib/reports/worked-minutes";
 
 type ReportDay = {
   date: string;
@@ -142,7 +143,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
     }) => ({
       date: row.work_date,
       expectedMinutes: Number(row.expected_minutes),
-      workedMinutes: Number(row.worked_minutes),
+      workedMinutes: completedWorkedMinutes(row.worked_minutes, row.first_clock_in, row.last_clock_out),
       creditedAbsenceMinutes: Number(row.credited_absence_minutes),
       manualAdjustmentMinutes: Number(row.manual_adjustment_minutes),
       finalBalanceMinutes: Number(row.final_balance_minutes),
