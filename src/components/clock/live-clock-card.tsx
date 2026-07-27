@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { CircleStop, Play, TimerReset } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { startClock, stopClock } from "@/actions/clock-actions";
 import { formatDuration, formatMinutes, formatTime } from "@/lib/formatting";
 import { he } from "@/lib/i18n/he";
 
 export function LiveClockCard({ activeClockIn, workedMinutes = 0, expectedMinutes = 0 }: { activeClockIn?: string | null; workedMinutes?: number; expectedMinutes?: number }) {
+  const router = useRouter();
   const [clockIn, setClockIn] = useState(activeClockIn ?? null);
   const [now, setNow] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
@@ -33,7 +35,10 @@ export function LiveClockCard({ activeClockIn, workedMinutes = 0, expectedMinute
       setFeedback(null);
       const result = clockIn ? await stopClock() : await startClock();
       setFeedback({ ok: result.ok, message: result.message });
-      if (result.ok) setClockIn(clockIn ? null : String(result.entry?.clock_in ?? new Date().toISOString()));
+      if (result.ok) {
+        setClockIn(clockIn ? null : String(result.entry?.clock_in ?? new Date().toISOString()));
+        router.refresh();
+      }
     });
   }
 

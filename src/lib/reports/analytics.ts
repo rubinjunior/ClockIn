@@ -36,7 +36,6 @@ export type ReportDayStatus =
   | "missingReport"
   | "missingHours"
   | "overtime"
-  | "nonWorkday"
   | "completed";
 
 export type ReportWeek = {
@@ -93,8 +92,8 @@ export function getReportDayStatus(day: AnalyticsDay, leaves: AnalyticsLeave[], 
   const leave = matchingLeave(day, leaves);
   if (leave?.leaveType === "vacation" && day.creditedAbsenceMinutes > 0) return "vacation";
   if (leave?.leaveType === "sick" && day.creditedAbsenceMinutes > 0) return "sick";
-  if (day.expectedMinutes === 0) return day.workedMinutes > 0 ? "overtime" : "nonWorkday";
   if (day.workedMinutes === 0 && day.creditedAbsenceMinutes === 0 && day.manualAdjustmentMinutes === 0) return "missingReport";
+  if (day.expectedMinutes === 0) return day.workedMinutes > 0 ? "overtime" : "completed";
   const balance = day.workedMinutes + day.creditedAbsenceMinutes + day.manualAdjustmentMinutes - day.expectedMinutes;
   if (balance < 0) return "missingHours";
   if (balance > 0) return "overtime";

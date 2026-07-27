@@ -61,6 +61,30 @@ describe("ניתוח דוח חודשי", () => {
     expect(getReportDayStatus(day("2026-06-03", { creditedAbsenceMinutes: 480 }), leaves, new Set())).toBe("sick");
   });
 
+  it("מסווג דיווח 08:59–17:01 כחוסר מול תקן 09:00–18:00", () => {
+    expect(getReportDayStatus(day("2026-07-01", {
+      expectedMinutes: 540,
+      workedMinutes: 482,
+      finalBalanceMinutes: -58,
+      sessions: 1,
+    }), [], new Set())).toBe("missingHours");
+  });
+
+  it("מסווג יום עבר רגיל ללא דיווח כחסר גם כשהתקן אפס", () => {
+    expect(getReportDayStatus(day("2026-06-06", {
+      expectedMinutes: 0,
+      finalBalanceMinutes: 0,
+    }), [], new Set())).toBe("missingReport");
+  });
+
+  it("משאיר יום חג ללא דיווח כסטטוס חג", () => {
+    expect(getReportDayStatus(day("2026-06-06", {
+      expectedMinutes: 0,
+      finalBalanceMinutes: 0,
+      holidayLabel: "חג",
+    }), [], new Set())).toBe("holiday");
+  });
+
   it("מייצר התראות לדיווח חסר, דיווח פתוח וחפיפה", () => {
     const result = buildReportAnalytics({
       today: "2026-06-02",

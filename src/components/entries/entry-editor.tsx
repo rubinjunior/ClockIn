@@ -10,6 +10,7 @@ import {
   useTransition,
 } from "react";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { useRouter } from "next/navigation";
 import { Clock3, Pencil, Plus, Trash2, X } from "lucide-react";
 import { deleteEntry, saveEntry } from "@/actions/entry-actions";
 import type { EditableEntry, EntryFormCategory } from "@/components/entries/entry-form";
@@ -115,6 +116,7 @@ function EntryDialog({
   onClose: () => void;
   onResult: (result: { ok: boolean; message: string }) => void;
 }) {
+  const router = useRouter();
   const form = useRef<HTMLFormElement>(null);
   const titleId = useId();
   const [latestLocal, setLatestLocal] = useState("");
@@ -151,7 +153,10 @@ function EntryDialog({
       const result = await saveEntry(formData);
       setMessage(result.message ?? "");
       onResult({ ok: result.ok, message: result.message ?? "" });
-      if (result.ok) close();
+      if (result.ok) {
+        close();
+        router.refresh();
+      }
     });
   }
 
@@ -167,7 +172,10 @@ function EntryDialog({
       const result = await deleteEntry(entry.id, reason);
       setMessage(result.message);
       onResult({ ok: result.ok, message: result.message });
-      if (result.ok) close();
+      if (result.ok) {
+        close();
+        router.refresh();
+      }
     });
   }
 

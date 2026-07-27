@@ -85,7 +85,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   const focusDate = /^\d{4}-\d{2}-\d{2}$/.test(params.editDate ?? "") ? params.editDate : undefined;
   const categoryFilter = params.category?.slice(0, 80);
   const statusValue = params.status?.slice(0, 40);
-  const statusFilter = (["future", "inProgress", "holiday", "shortened", "vacation", "sick", "incomplete", "missingReport", "missingHours", "overtime", "nonWorkday", "completed", "friday"] as const).find((value) => value === statusValue);
+  const statusFilter = (["future", "inProgress", "holiday", "shortened", "vacation", "sick", "incomplete", "missingReport", "missingHours", "overtime", "completed", "friday"] as const).find((value) => value === statusValue);
   const weekFilter = /^\d{4}-\d{2}-\d{2}$/.test(params.week ?? "") ? params.week : undefined;
   const start = month + "-01";
   const last = new Date(month + "-01T00:00:00Z");
@@ -357,7 +357,10 @@ function CalendarView({ days, statusByDate, month, full, entriesByDate, category
                 <time className="font-bold" dateTime={day.date}>{Number(day.date.slice(-2))}</time>
                 {!day.future && <Link aria-label={he.report.editDay + " " + day.date} href={reportHref(month, full, "list") + "&editDate=" + day.date} className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]"><Pencil aria-hidden size={16} /></Link>}
               </div>
-              <p className="mt-2 text-center text-xs font-bold sm:text-sm"><MinuteValue minutes={day.workedMinutes} /></p><p className="mt-1 truncate text-center text-[10px] font-bold" title={day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])}>{day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])}</p>
+              <p className="mt-2 text-center text-xs font-bold sm:text-sm"><MinuteValue minutes={day.workedMinutes} /></p>
+              <div className="mt-1 flex justify-center">
+                <StatusBadge compact status={statusByDate[day.date]} label={day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])} />
+              </div>
               <div className="mt-1 hidden gap-1 sm:grid">
                 {Object.entries(categoryMinutes).slice(0, 2).map(([categoryId, minutes]) => <span key={categoryId} className="truncate rounded-md bg-[var(--primary-soft)] px-1 py-0.5 text-[10px] text-[var(--primary)]" title={categoryNames.get(categoryId)}>{categoryNames.get(categoryId)} · {formatMinutes(minutes)}</span>)}
               </div>
@@ -393,19 +396,23 @@ function reportStatusLabel(status: ReportDayStatus) {
   if (status === "missingReport") return he.report.statusMissingReport;
   if (status === "missingHours") return he.report.statusMissingHours;
   if (status === "overtime") return he.status.overtime;
-  if (status === "nonWorkday") return he.report.statusNonWorkday;
   return he.report.completed;
 }
 
-function StatusBadge({ status, label }: { status: ReportDayStatus; label: string }) {
-  const tone = status === "missingReport" || status === "incomplete"
-    ? "bg-[var(--error-soft)] text-[var(--error)]"
-    : status === "missingHours"
-      ? "bg-[var(--warning-soft)] text-[var(--warning)]"
-      : status === "completed" || status === "overtime"
-        ? "bg-[var(--success-soft)] text-[var(--success)]"
-        : status === "future" || status === "nonWorkday"
-          ? "bg-[var(--surface-muted)] text-[var(--text-secondary)]"
-          : "bg-[var(--primary-soft)] text-[var(--primary)]";
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${tone}`}>{label}</span>;
+function StatusBadge({ status, label, compact = false }: { status: ReportDayStatus; label: string; compact?: boolean }) {
+  const tones: Record<ReportDayStatus, string> = {
+    future: "bg-[var(--surface-muted)] text-[var(--status-future)]",
+    inProgress: "bg-[var(--primary-soft)] text-[var(--primary)]",
+    holiday: "bg-[var(--holiday-soft)] text-[var(--holiday)]",
+    shortened: "bg-[var(--shortened-soft)] text-[var(--shortened)]",
+    vacation: "bg-[var(--vacation-soft)] text-[var(--vacation)]",
+    sick: "bg-[var(--sick-soft)] text-[var(--sick)]",
+    incomplete: "bg-[var(--error-soft)] text-[var(--error)]",
+    missingReport: "bg-[var(--error-soft)] text-[var(--error)]",
+    missingHours: "bg-[var(--error-soft)] text-[var(--error)]",
+    overtime: "bg-[var(--success-soft)] text-[var(--success)]",
+    completed: "bg-[var(--success-soft)] text-[var(--success)]",
+  };
+  const size = compact ? "max-w-full truncate px-1.5 py-0.5 text-[10px] sm:px-2" : "px-3 py-1 text-xs";
+  return <span title={label} className={`inline-flex rounded-full font-bold ${size} ${tones[status]}`}>{label}</span>;
 }
