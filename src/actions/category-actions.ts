@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isDemoMode } from "@/lib/demo";
 import { he } from "@/lib/i18n/he";
 import { createClient } from "@/lib/supabase/server";
+import { findCategoryByName } from "@/lib/categories/name";
 
 export type CategoryActionState = { ok?: boolean; message?: string };
 
@@ -28,17 +29,45 @@ export async function saveWorkCategory(_: CategoryActionState, formData: FormDat
   if (!auth) return { ok: false, message: he.onboarding.loginAgain };
 
   const values = { name: parsed.data.name, is_active: true };
-  const query = parsed.data.id
-    ? auth.supabase.from("work_categories").update(values).eq("id", parsed.data.id).eq("user_id", auth.user.id)
-    : auth.supabase.from("work_categories").insert({ ...values, user_id: auth.user.id });
-  const { error } = await query;
+  let reactivated = false;
+  let error;
+
+  if (parsed.data.id) {
+    ({ error } = await auth.supabase
+      .from("work_categories")
+      .update(values)
+      .eq("id", parsed.data.id)
+      .eq("user_id", auth.user.id));
+  } else {
+    const existingResult = await auth.supabase
+      .from("work_categories")
+      .select("id,name,is_active")
+      .eq("user_id", auth.user.id);
+    if (existingResult.error) return { ok: false, message: he.categories.saveFailed };
+
+    const existing = findCategoryByName(existingResult.data ?? [], parsed.data.name);
+    if (existing?.is_active) return { ok: false, message: he.categories.duplicate };
+
+    if (existing) {
+      ({ error } = await auth.supabase
+        .from("work_categories")
+        .update(values)
+        .eq("id", existing.id)
+        .eq("user_id", auth.user.id));
+      reactivated = !error;
+    } else {
+      ({ error } = await auth.supabase
+        .from("work_categories")
+        .insert({ ...values, user_id: auth.user.id }));
+    }
+  }
   if (error) return { ok: false, message: error.code === "23505" ? he.categories.duplicate : he.categories.saveFailed };
 
   revalidatePath("/app");
   revalidatePath("/app/settings");
   revalidatePath("/app/entries");
   revalidatePath("/app/report");
-  return { ok: true, message: he.categories.saved };
+  return { ok: true, message: reactivated ? he.categories.reactivated : he.categories.saved };
 }
 
 export async function archiveWorkCategory(formData: FormData) {

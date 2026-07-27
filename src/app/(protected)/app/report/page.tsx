@@ -30,6 +30,8 @@ type ReportDay = {
   missingMinutes: number;
   overtimeMinutes: number;
   sessions: number;
+  firstClockIn: string | null;
+  lastClockOut: string | null;
   future: boolean;
   provisional?: boolean;
   holidayLabel: string | null;
@@ -104,7 +106,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   let incompleteEntryDates: string[] = [];
 
   if (demoMode) {
-    days = demoReportRows(month).map((day) => ({ ...day, holidayLabel: null, shortenedDay: false, provisional: day.date === today }));
+    days = demoReportRows(month).map((day) => ({ ...day, firstClockIn: null, lastClockOut: null, holidayLabel: null, shortenedDay: false, provisional: day.date === today }));
     compensationTerms = [{ effectiveFrom: start, effectiveTo: null, enabled: true, mode: "hourly", hourlyRate: 62.5, monthlySalary: null }];
   } else {
     const [profile, supabase] = await Promise.all([getCurrentProfile(), createClient()]);
@@ -131,6 +133,8 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
       final_balance_minutes: number;
       missing_minutes: number;
       overtime_minutes: number;
+      first_clock_in: string | null;
+      last_clock_out: string | null;
       sessions: number;
       holiday_label: string | null;
       shortened_day: boolean;
@@ -144,6 +148,8 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
       finalBalanceMinutes: Number(row.final_balance_minutes),
       missingMinutes: Number(row.missing_minutes),
       overtimeMinutes: Number(row.overtime_minutes),
+      firstClockIn: row.first_clock_in,
+      lastClockOut: row.last_clock_out,
       sessions: Number(row.sessions),
       future: row.work_date > today,
       holidayLabel: row.holiday_label ?? null,
@@ -257,7 +263,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
         {view === "calendar" ? (
           <CalendarView days={days} statusByDate={analytics.statusByDate} month={month} full={full} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} />
         ) : (
-          <ListView focusDate={focusDate} days={visibleDays} statusByDate={analytics.statusByDate} filtered={Boolean(filterLabel)} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} timezone={timezone} />
+          <ListView focusDate={focusDate} days={visibleDays} statusByDate={analytics.statusByDate} filtered={Boolean(filterLabel)} entriesByDate={entriesByDate} timezone={timezone} />
         )}
       </section>
 
@@ -267,29 +273,27 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   );
 }
 
-function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, categoryByDate, categoryNames, timezone }: {
+function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, timezone }: {
   focusDate?: string;
   days: ReportDay[];
   statusByDate: Record<string, ReportDayStatus>;
   filtered: boolean;
   entriesByDate: Record<string, ReportEntry[]>;
-  categoryByDate: Record<string, Record<string, number>>;
-  categoryNames: Map<string, string>;
   timezone: string;
 }) {
   if (!days.length) return <div className="card p-8 text-center"><p className="font-bold">{filtered ? he.report.filteredEmpty : he.report.empty}</p></div>;
-  const headers = [he.report.date, he.report.status, he.report.expected, he.report.worked, he.report.adjustments, he.report.balance, he.report.entriesCount, he.report.edit];
-  const grid = "md:grid-cols-[1.35fr_1.2fr_repeat(6,minmax(0,1fr))]";
+  const headers = [he.report.date, he.report.startTime, he.report.endTime, he.report.worked, he.report.notes, he.report.status, he.report.edit];
+  const grid = "md:grid-cols-[1.15fr_0.85fr_0.85fr_0.9fr_minmax(12rem,2fr)_1.2fr_0.9fr]";
   return (
     <>
       <ReportDayFocus date={focusDate} />
       <div className="grid gap-3 md:card md:block md:overflow-hidden" role="table" aria-label={he.report.daily}>
         <div role="row" className={`hidden bg-[var(--primary-soft)] text-sm text-[var(--primary)] md:grid ${grid}`}>
-          {headers.map((header, index) => <div role="columnheader" className={"p-3 font-bold align-middle " + (index < 2 ? "text-start" : "text-center")} key={header}>{header}</div>)}
+          {headers.map((header, index) => <div role="columnheader" className={`p-3 font-bold align-middle ${index === 0 || index === 4 || index === 5 ? "text-start" : "text-center"}`} key={header}>{header}</div>)}
         </div>
         {days.map((day) => {
           const entries = entriesByDate[day.date] ?? [];
-          const categoryMinutes = categoryByDate[day.date] ?? {};
+          const notes = [...new Set(entries.map((entry) => entry.note?.trim()).filter((note): note is string => Boolean(note)))];
           return (
             <article
               role="row"
@@ -297,20 +301,21 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, cate
               data-report-date={day.date}
               data-date={day.date}
               key={day.date}
-              className={`card grid grid-cols-3 gap-3 p-4 md:rounded-none md:border-x-0 md:border-b-0 md:p-0 md:shadow-none md:grid ${grid}`}
+              className={`card grid grid-cols-2 gap-3 p-4 md:rounded-none md:border-x-0 md:border-b-0 md:p-0 md:shadow-none md:grid ${grid}`}
             >
-              <div role="cell" data-cell="date" className="col-span-2 text-start md:col-auto md:p-3">
+              <div role="cell" data-cell="date" className="text-start md:p-3">
+                <span className="muted block text-xs md:hidden">{he.report.date}</span>
                 <strong>{new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "numeric" }).format(new Date(day.date + "T12:00:00Z"))}</strong>
-                <span className="muted mt-0.5 block text-xs md:hidden">{day.sessions ? day.sessions + " " + he.report.entriesCount : he.report.noEntries}</span>
               </div>
-              <div role="cell" data-cell="status" className="text-end md:p-3 md:text-start"><StatusBadge status={statusByDate[day.date]} label={day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])} /></div>
-              <DailyValue label={he.report.expected} minutes={day.expectedMinutes} cell="expected" />
+              <ReportTimeCell cell="start" label={he.report.startTime} value={day.firstClockIn} timezone={timezone} />
+              <ReportTimeCell cell="end" label={he.report.endTime} value={day.lastClockOut} timezone={timezone} />
               <DailyValue label={he.report.worked} minutes={day.workedMinutes} cell="worked" />
-              <div role="cell" data-cell="adjustments" className="hidden p-3 text-center md:block"><MinuteValue minutes={day.manualAdjustmentMinutes} /></div>
-              <DailyValue label={he.report.balance} minutes={day.finalBalanceMinutes} cell="balance" strong />
-              <div role="cell" data-cell="sessions" className="hidden p-3 text-center md:block">{day.sessions}</div>
-              {Object.keys(categoryMinutes).length > 0 && <div className="col-span-3 flex flex-wrap gap-2 md:hidden">{Object.entries(categoryMinutes).map(([categoryId, minutes]) => <span key={categoryId} className="rounded-full bg-[var(--primary-soft)] px-3 py-1 text-xs font-bold text-[var(--primary)]">{categoryNames.get(categoryId)} · {formatMinutes(minutes)}</span>)}</div>}
-              <div role="cell" data-cell="actions" className="col-span-3 border-t border-[var(--border-soft)] pt-3 text-center md:col-auto md:border-0 md:p-2"><DayEntryActions date={day.date} entries={entries} timezone={timezone} allowAdd={!day.future} /></div>
+              <div role="cell" data-cell="notes" className="col-span-2 min-w-0 md:col-auto md:p-3">
+                <span className="muted block text-xs md:hidden">{he.report.notes}</span>
+                <span className={notes.length ? "block break-words text-sm" : "muted block text-sm"}>{notes.length ? notes.join(" · ") : he.report.noNotes}</span>
+              </div>
+              <div role="cell" data-cell="status" className="md:p-3 md:text-start"><span className="muted mb-1 block text-xs md:hidden">{he.report.status}</span><StatusBadge status={statusByDate[day.date]} label={day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])} /></div>
+              <div role="cell" data-cell="actions" className="border-t border-[var(--border-soft)] pt-3 text-center md:border-0 md:p-2"><span className="muted mb-1 block text-xs md:hidden">{he.report.edit}</span><DayEntryActions date={day.date} entries={entries} timezone={timezone} allowAdd={!day.future} /></div>
             </article>
           );
         })}
@@ -319,9 +324,14 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, cate
   );
 }
 
-function DailyValue({ label, minutes, cell, strong = false }: { label: string; minutes: number; cell: string; strong?: boolean }) {
-  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><span className={strong ? "font-bold" : undefined}><MinuteValue minutes={minutes} /></span></div>;
+function DailyValue({ label, minutes, cell }: { label: string; minutes: number; cell: string }) {
+  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><MinuteValue minutes={minutes} /></div>;
 }
+
+function ReportTimeCell({ cell, label, value, timezone }: { cell: string; label: string; value: string | null; timezone: string }) {
+  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span>{value ? <time className="metric-value" dateTime={value} dir="ltr">{formatTime(value, timezone)}</time> : <span className="muted" aria-label={he.report.noTime}>—</span>}</div>;
+}
+
 function CalendarView({ days, statusByDate, month, full, entriesByDate, categoryByDate, categoryNames }: {
   days: ReportDay[];
   statusByDate: Record<string, ReportDayStatus>;

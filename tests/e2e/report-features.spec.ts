@@ -42,9 +42,22 @@ test("אפשר להוסיף דיווח ליום ישירות מתוך הדוח",
   await expect(page.getByText("הדיווח נשמר לצורך ההדגמה", { exact: true })).toBeVisible();
   await expect(page.locator("dialog")).toHaveCount(0);
 });
-test("ערך עם סימן ממורכז בתוך עמודת המאזן", async ({ page }) => {
+test("טבלת הפירוט מציגה את שבע העמודות המבוקשות ושומרת על יישור", async ({ page }) => {
   await page.goto("/app/report?view=list");
-  const container = page.locator("[data-date]:visible").first().locator('[data-cell="balance"]');
+  const dailyTable = page.getByRole("table", { name: "פירוט יומי" });
+  await expect(dailyTable).toBeVisible();
+  expect(await dailyTable.locator('[role="columnheader"]').allTextContents()).toEqual([
+    "תאריך",
+    "שעת התחלה",
+    "שעת סיום",
+    "שעות בפועל",
+    "הערות",
+    "סטטוס",
+    "עריכה",
+  ]);
+  const row = dailyTable.locator("[data-date]:visible").first();
+  await expect(row.getByRole("cell")).toHaveCount(7);
+  const container = row.locator('[data-cell="worked"]');
   const value = container.locator("span.metric-value");
   await expect(value).toBeVisible();
   const centers = await Promise.all([container.boundingBox(), value.boundingBox()]);
@@ -54,6 +67,7 @@ test("ערך עם סימן ממורכז בתוך עמודת המאזן", async (
   const valueCenter = centers[1]!.x + centers[1]!.width / 2;
   expect(Math.abs(cellCenter - valueCenter)).toBeLessThanOrEqual(1);
   await expect(value).toHaveCSS("direction", "ltr");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 test("לא ניתן להוסיף דיווח ליום עתידי", async ({ page }) => {
   await page.goto("/app/report?month=2026-07&view=list");
@@ -105,12 +119,13 @@ test("התראות על ימים חסרים מקובצות ומובילות לס
   await expect(page.getByText(/הפירוט מסונן: חסר דיווח/)).toBeVisible();
 });
 
-test("יום עתידי מציג תקן אבל לא מאזן שלילי", async ({ page }) => {
+test("יום עתידי מציג אפס שעות ללא זמני דיווח", async ({ page }) => {
   await page.goto("/app/report?month=2026-07&view=list");
   const future = page.locator('[data-date="2026-07-30"]:visible');
   await expect(future.getByText("עתידי", { exact: true })).toBeVisible();
-  await expect(future.getByText("08:30", { exact: true })).toBeVisible();
-  await expect(future.getByText("00:00", { exact: true }).first()).toBeVisible();
+  await expect(future.locator('[data-cell="start"]')).toContainText("—");
+  await expect(future.locator('[data-cell="end"]')).toContainText("—");
+  await expect(future.locator('[data-cell="worked"]').getByText("00:00", { exact: true })).toBeVisible();
 });
 test("הפירוט היומי מופיע לפני הניתוחים המתקדמים והדוח לא מרנדר עשרות טפסים", async ({ page }) => {
   await page.goto("/app/report?month=2026-07");
