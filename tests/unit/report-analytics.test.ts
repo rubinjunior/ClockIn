@@ -70,6 +70,14 @@ describe("ניתוח דוח חודשי", () => {
     }), [], new Set())).toBe("missingHours");
   });
 
+  it("לא מסווג ערכים מספריים פגומים כהושלם", () => {
+    expect(getReportDayStatus(day("2026-07-02", {
+      workedMinutes: Number.NaN,
+      creditedAbsenceMinutes: Number.NaN,
+      manualAdjustmentMinutes: Number.NaN,
+    }), [], new Set())).toBe("missingReport");
+  });
+
   it("מסווג יום עבר רגיל ללא דיווח כחסר גם כשהתקן אפס", () => {
     expect(getReportDayStatus(day("2026-06-06", {
       expectedMinutes: 0,

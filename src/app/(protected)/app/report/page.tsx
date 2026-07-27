@@ -16,10 +16,11 @@ import { he } from "@/lib/i18n/he";
 import { getIsraelCalendarRules } from "@/lib/holidays/israel";
 import { applyIsraelCalendar } from "@/lib/reports/israel-calendar";
 import { estimateMonthlyCompensation, type CompensationTerm } from "@/lib/reports/compensation";
-import { type LeaveEntryForBalance } from "@/lib/leave/balances";
+import { type LeaveEntryForBalance, type ScheduleForBalance } from "@/lib/leave/balances";
 import { israelMonth, israelToday } from "@/lib/time/israel";
 import { buildReportAnalytics, type ReportDayStatus } from "@/lib/reports/analytics";
 import { completedWorkedMinutes } from "@/lib/reports/worked-minutes";
+import { expectedMinutesForDate, reconcileReportDays, type ReportCalendarException } from "@/lib/reports/reconcile-days";
 
 type ReportDay = {
   date: string;
@@ -105,6 +106,8 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   let reportEntries: ReportEntry[] = [];
   let compensationTerms: CompensationTerm[] = [];
   let incompleteEntryDates: string[] = [];
+  let schedules: ScheduleForBalance[] = [];
+  let calendarExceptions: ReportCalendarException[] = [];
 
   if (demoMode) {
     days = demoReportRows(month).map((day) => ({ ...day, firstClockIn: null, lastClockOut: null, holidayLabel: null, shortenedDay: false, provisional: day.date === today }));
@@ -115,15 +118,17 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
     const startsAt = fromZonedTime(start + "T00:00:00", timezone).toISOString();
     const endsAt = fromZonedTime(endExclusiveDate.toISOString().slice(0, 10) + "T00:00:00", timezone).toISOString();
 
-    const [reportResult, leaveResult, categoriesResult, entriesResult, compensationResult, incompleteResult] = await Promise.all([
+    const [reportResult, leaveResult, categoriesResult, entriesResult, compensationResult, incompleteResult, schedulesResult, exceptionsResult] = await Promise.all([
       supabase.rpc("monthly_report", { month_start: start, month_end: end, include_future: true }),
       supabase.from("leave_entries").select("leave_type,start_date,end_date,partial_minutes").eq("status", "approved").lte("start_date", end).gte("end_date", start),
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
       supabase.from("time_entries").select("id,clock_in,clock_out,category_id,note").lt("clock_in", endsAt).gt("clock_out", startsAt).is("deleted_at", null).not("clock_out", "is", null).order("clock_in"),
       supabase.from("employment_terms").select("effective_from,effective_to,compensation_enabled,mode,hourly_rate,monthly_salary").lte("effective_from", end).or(`effective_to.is.null,effective_to.gte.${start}`).order("effective_from"),
       supabase.from("time_entries").select("clock_in").gte("clock_in", startsAt).lt("clock_in", endsAt).is("clock_out", null).is("deleted_at", null),
+      supabase.from("work_schedule_versions").select("effective_from,effective_to,work_schedule_days(weekday,is_workday,target_minutes)").order("effective_from"),
+      supabase.from("calendar_exceptions").select("exception_date,exception_type,target_minutes"),
     ]);
-    requireSuccessfulQueries("report", [reportResult, leaveResult, categoriesResult, entriesResult, compensationResult, incompleteResult]);
+    requireSuccessfulQueries("report", [reportResult, leaveResult, categoriesResult, entriesResult, compensationResult, incompleteResult, schedulesResult, exceptionsResult]);
 
     days = (reportResult.data ?? []).map((row: {
       work_date: string;
@@ -162,11 +167,27 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
     reportEntries = (entriesResult.data ?? []).filter((entry): entry is ReportEntry => Boolean(entry.clock_out));
     incompleteEntryDates = [...new Set((incompleteResult.data ?? []).map((entry) => formatInTimeZone(entry.clock_in, timezone, "yyyy-MM-dd")))];
     compensationTerms = ((compensationResult.data ?? []) as EmploymentTermRow[]).map((term) => ({ effectiveFrom: term.effective_from, effectiveTo: term.effective_to, enabled: term.compensation_enabled, mode: term.mode, hourlyRate: term.hourly_rate == null ? null : Number(term.hourly_rate), monthlySalary: term.monthly_salary == null ? null : Number(term.monthly_salary) }));
+    schedules = (schedulesResult.data ?? []).map((schedule) => ({ effectiveFrom: schedule.effective_from, effectiveTo: schedule.effective_to, days: schedule.work_schedule_days.map((day) => ({ weekday: day.weekday, isWorkday: day.is_workday, targetMinutes: Number(day.target_minutes) })) }));
+    calendarExceptions = (exceptionsResult.data ?? []).map((item) => ({ date: item.exception_date, type: item.exception_type as ReportCalendarException["type"], targetMinutes: item.target_minutes == null ? null : Number(item.target_minutes) }));
   }
 
-  days = applyIsraelCalendar(days, await calendarRulesPromise, true);
+  const calendarRules = await calendarRulesPromise;
+  if (schedules.length) {
+    days = days.map((day) => ({
+      ...day,
+      expectedMinutes: expectedMinutesForDate({
+        date: day.date,
+        rpcExpectedMinutes: day.expectedMinutes,
+        schedules,
+        exceptions: calendarExceptions,
+        rules: calendarRules,
+      }),
+    }));
+  }
+  days = applyIsraelCalendar(days, calendarRules, true);
 
   const normalizedLeaveEntries: LeaveEntryForBalance[] = leaveEntries.map((entry) => ({ leaveType: entry.leave_type as "vacation" | "sick", startDate: entry.start_date, endDate: entry.end_date, partialMinutes: entry.partial_minutes }));
+  days = reconcileReportDays(days, normalizedLeaveEntries, true);
   const analytics = buildReportAnalytics({
     days,
     today,
@@ -310,7 +331,7 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, time
               </div>
               <ReportTimeCell cell="start" label={he.report.startTime} value={day.firstClockIn} timezone={timezone} />
               <ReportTimeCell cell="end" label={he.report.endTime} value={day.lastClockOut} timezone={timezone} />
-              <DailyValue label={he.report.worked} minutes={day.workedMinutes} cell="worked" />
+              <DailyValue label={he.report.worked} minutes={day.workedMinutes} expectedMinutes={day.expectedMinutes} balanceMinutes={day.finalBalanceMinutes} cell="worked" />
               <div role="cell" data-cell="notes" className="col-span-2 min-w-0 md:col-auto md:p-3">
                 <span className="muted block text-xs md:hidden">{he.report.notes}</span>
                 <span className={notes.length ? "block break-words text-sm" : "muted block text-sm"}>{notes.length ? notes.join(" · ") : he.report.noNotes}</span>
@@ -325,8 +346,9 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, time
   );
 }
 
-function DailyValue({ label, minutes, cell }: { label: string; minutes: number; cell: string }) {
-  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><MinuteValue minutes={minutes} /></div>;
+function DailyValue({ label, minutes, expectedMinutes, balanceMinutes, cell }: { label: string; minutes: number; expectedMinutes: number; balanceMinutes: number; cell: string }) {
+  const balanceTone = balanceMinutes < 0 ? "text-[var(--error)]" : balanceMinutes > 0 ? "text-[var(--success)]" : "text-[var(--text-secondary)]";
+  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><MinuteValue minutes={minutes} /><span className={`mt-1 block text-[10px] leading-4 ${balanceTone}`}>{he.report.dailyStandard} <span className="metric-value inline-block">{formatMinutes(expectedMinutes)}</span><span aria-hidden> · </span>{he.report.difference} <span className="metric-value inline-block">{formatMinutes(balanceMinutes)}</span></span></div>;
 }
 
 function ReportTimeCell({ cell, label, value, timezone }: { cell: string; label: string; value: string | null; timezone: string }) {

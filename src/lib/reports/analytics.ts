@@ -83,6 +83,10 @@ function plannedLeaveCredit(day: AnalyticsDay, leaves: AnalyticsLeave[]) {
   return leave.partialMinutes == null ? day.expectedMinutes : Math.min(day.expectedMinutes, leave.partialMinutes);
 }
 
+function reportInteger(value: number) {
+  return Number.isFinite(value) ? Math.round(value) : 0;
+}
+
 export function getReportDayStatus(day: AnalyticsDay, leaves: AnalyticsLeave[], incompleteDates: Set<string>): ReportDayStatus {
   if (day.future) return "future";
   if (incompleteDates.has(day.date)) return "incomplete";
@@ -92,9 +96,13 @@ export function getReportDayStatus(day: AnalyticsDay, leaves: AnalyticsLeave[], 
   const leave = matchingLeave(day, leaves);
   if (leave?.leaveType === "vacation" && day.creditedAbsenceMinutes > 0) return "vacation";
   if (leave?.leaveType === "sick" && day.creditedAbsenceMinutes > 0) return "sick";
-  if (day.workedMinutes === 0 && day.creditedAbsenceMinutes === 0 && day.manualAdjustmentMinutes === 0) return "missingReport";
-  if (day.expectedMinutes === 0) return day.workedMinutes > 0 ? "overtime" : "completed";
-  const balance = day.workedMinutes + day.creditedAbsenceMinutes + day.manualAdjustmentMinutes - day.expectedMinutes;
+  const expectedMinutes = Math.max(0, reportInteger(day.expectedMinutes));
+  const workedMinutes = Math.max(0, reportInteger(day.workedMinutes));
+  const creditedAbsenceMinutes = Math.max(0, reportInteger(day.creditedAbsenceMinutes));
+  const manualAdjustmentMinutes = reportInteger(day.manualAdjustmentMinutes);
+  if (workedMinutes === 0 && creditedAbsenceMinutes === 0 && manualAdjustmentMinutes === 0) return "missingReport";
+  if (expectedMinutes === 0) return workedMinutes > 0 ? "overtime" : "completed";
+  const balance = workedMinutes + creditedAbsenceMinutes + manualAdjustmentMinutes - expectedMinutes;
   if (balance < 0) return "missingHours";
   if (balance > 0) return "overtime";
   return "completed";
