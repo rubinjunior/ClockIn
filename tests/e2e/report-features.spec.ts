@@ -24,6 +24,21 @@ test("דוח ריק מתחיל באפס ומאפשר מעבר ללוח שנה", 
   expect(fitsViewport).toBe(true);
 });
 
+test("חצי החודשים שומרים על משמעות כיוונית בממשק RTL", async ({ page }) => {
+  await page.goto("/app/report?month=2026-08");
+  const previous = page.getByRole("link", { name: "החודש הקודם" });
+  const next = page.getByRole("link", { name: "החודש הבא" });
+  const [previousBox, nextBox] = await Promise.all([previous.boundingBox(), next.boundingBox()]);
+  expect(previousBox).not.toBeNull();
+  expect(nextBox).not.toBeNull();
+  expect(nextBox!.x).toBeGreaterThan(previousBox!.x);
+
+  await next.click();
+  await expect(page).toHaveURL(/month=2026-09/);
+  await page.goto("/app/report?month=2026-08");
+  await page.getByRole("link", { name: "החודש הקודם" }).click();
+  await expect(page).toHaveURL(/month=2026-07/);
+});
 test("כרטיס הפלוס פותח את שדה הקטגוריה בהגדרות", async ({ page }) => {
   await page.goto("/app/report?month=2026-07");
   await page.getByRole("link", { name: "הוספת קטגוריית שעות" }).click();
@@ -142,8 +157,8 @@ test("הדוח מציג תמיד מצב נוכחי ללא בחירת טווח", 
   await expect(page.getByText("חודש מלא", { exact: true })).toHaveCount(0);
   const reportLinks = await page.locator('a[href^="?"]').evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
   expect(reportLinks.every((href) => !href.includes("mode="))).toBe(true);
-  await page.getByText("איך חושב התקן?", { exact: true }).click();
-  await expect(page.getByText("ימי תקן בחודש", { exact: true })).toBeVisible();
+  await expect(page.getByText("איך חושב התקן?", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "דורש תשומת לב" })).toHaveCount(0);
 });
 
 test("בחירת שבוע מסננת את הפירוט היומי", async ({ page }) => {
@@ -154,8 +169,9 @@ test("בחירת שבוע מסננת את הפירוט היומי", async ({ pag
   await expect(page.locator("[data-date]:visible")).toHaveCount(4);
 });
 
-test("התראות על ימים חסרים מקובצות ומובילות לסינון", async ({ page }) => {
-  await page.goto("/app/report?month=2026-07");
+test("ההתראות מוצגות בבית ומובילות לדוח המסונן", async ({ page }) => {
+  await page.goto("/app");
+  await expect(page.getByRole("heading", { name: "דורש תשומת לב" })).toBeVisible();
   await page.getByRole("link").filter({ hasText: "ימים ללא דיווח" }).first().click();
   await expect(page).toHaveURL(/status=missingReport/);
   await expect(page.getByText(/הפירוט מסונן: חסר דיווח/)).toBeVisible();

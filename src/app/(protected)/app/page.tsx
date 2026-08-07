@@ -1,5 +1,5 @@
 import { addDays, format, startOfDay, subDays } from "date-fns";
-import { formatInTimeZone, toZonedTime } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { Bell, CalendarDays, ChevronLeft, Coins, Gauge, HeartPulse, Palmtree, Settings, Tag } from "lucide-react";
 import Link from "next/link";
 import { cookies } from "next/headers";
@@ -7,6 +7,7 @@ import { LiveClockCard } from "@/components/clock/live-clock-card";
 import { EntryEditorProvider, EntryEditorTrigger } from "@/components/entries/entry-editor";
 import type { EditableEntry, EntryFormCategory } from "@/components/entries/entry-form";
 import { SummaryCard } from "@/components/dashboard/summary-card";
+import { ReportAlerts } from "@/components/reports/report-alerts";
 import { formatCurrency, formatLocalDate, formatMinutes, formatTime } from "@/lib/formatting";
 import { he } from "@/lib/i18n/he";
 import { createClient } from "@/lib/supabase/server";
@@ -16,7 +17,9 @@ import { getCurrentProfile } from "@/lib/supabase/profile";
 import { demoEntries, demoReportRows, isDemoMode } from "@/lib/demo";
 import { getIsraelCalendarRules } from "@/lib/holidays/israel";
 import { applyIsraelCalendar } from "@/lib/reports/israel-calendar";
+import { buildReportAnalytics } from "@/lib/reports/analytics";
 import { estimateMonthlyCompensation, type CompensationEstimate, type CompensationTerm } from "@/lib/reports/compensation";
+import { expectedMinutesForDate, reconcileReportDays, type ReportCalendarException } from "@/lib/reports/reconcile-days";
 import { completedWorkedMinutes } from "@/lib/reports/worked-minutes";
 import { calculateLeaveBalances, type ExceptionForBalance, type LeaveEntryForBalance, type ScheduleForBalance } from "@/lib/leave/balances";
 
@@ -24,7 +27,7 @@ type DashboardReportRow = {
   work_date: string; expected_minutes: number; worked_minutes: number; credited_absence_minutes: number;
   manual_adjustment_minutes: number; final_balance_minutes: number; missing_minutes: number; overtime_minutes: number;
   first_clock_in: string | null; last_clock_out: string | null;
-  sessions: number; holiday_label: string | null; shortened_day: boolean;
+  sessions: number; holiday_label: string | null; shortened_day: boolean; provisional?: boolean;
 };
 type ReminderSetting = {
   reminder_type: "clock_in" | "clock_out";
@@ -76,6 +79,7 @@ export default async function DashboardPage() {
   let sickMinutes = 0;
   let nextReminder: ReminderSetting | null = null;
   let compensation: CompensationEstimate = { visible: false, amount: 0, mode: "hidden" };
+  let dashboardAnalytics = buildReportAnalytics({ days: [], today, leaves: [] });
 
   if (isDemoMode()) {
     profile = { username: user.user_metadata.username, timezone: "Asia/Jerusalem" };
@@ -83,8 +87,10 @@ export default async function DashboardPage() {
     active = activeValue ? { clock_in: activeValue } : null;
     recent = demoEntries().map((entry) => ({ id: entry.id, clock_in: entry.clockIn, clock_out: entry.clockOut, category_id: entry.categoryId ?? null, note: entry.note ?? null }));
     weeklyWorked = recent.reduce((total, entry) => total + (entry.clock_out ? Math.round((new Date(entry.clock_out).getTime() - new Date(entry.clock_in).getTime()) / 60000) : 0), 0);
+    const demoDays = demoReportRows(today.slice(0, 7));
     const demoCompensationTerms: CompensationTerm[] = [{ effectiveFrom: monthStart, effectiveTo: null, enabled: true, mode: "hourly", hourlyRate: 62.5, monthlySalary: null }];
-    compensation = estimateMonthlyCompensation(demoReportRows(today.slice(0, 7)).filter((day) => day.date <= today), demoCompensationTerms, false);
+    compensation = estimateMonthlyCompensation(demoDays.filter((day) => day.date <= today), demoCompensationTerms, false);
+    dashboardAnalytics = buildReportAnalytics({ days: demoDays, today, leaves: [] });
   } else {
     profile = await getCurrentProfile();
     const supabase = await createClient();
@@ -93,8 +99,10 @@ export default async function DashboardPage() {
 
     const weekStart = format(subDays(localNow, localNow.getDay()), "yyyy-MM-dd");
     const calendarRulesPromise = Promise.all([...new Set([weekStart.slice(0, 4), today.slice(0, 4)])].map((year) => getIsraelCalendarRules(Number(year))));
+    const monthStartsAt = fromZonedTime(monthStart + "T00:00:00", timezone).toISOString();
+    const tomorrowStartsAt = fromZonedTime(format(addDays(localNow, 1), "yyyy-MM-dd") + "T00:00:00", timezone).toISOString();
 
-    const [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult, compensationReportResult, compensationTermsResult] = await Promise.all([
+    const [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult, compensationReportResult, compensationTermsResult, monthEntriesResult] = await Promise.all([
       supabase.from("time_entries").select("clock_in").is("clock_out", null).is("deleted_at", null).maybeSingle(),
       supabase.from("time_entries").select("id,clock_in,clock_out,category_id,note").not("clock_out", "is", null).is("deleted_at", null).order("clock_in", { ascending: false }).limit(4),
       supabase.rpc("monthly_report", { month_start: weekStart, month_end: today, include_future: false }),
@@ -106,18 +114,47 @@ export default async function DashboardPage() {
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
       supabase.rpc("monthly_report", { month_start: monthStart, month_end: today, include_future: false }),
       supabase.from("employment_terms").select("effective_from,effective_to,compensation_enabled,mode,hourly_rate,monthly_salary").lte("effective_from", today).or(`effective_to.is.null,effective_to.gte.${monthStart}`).order("effective_from"),
+      supabase.from("time_entries").select("id,clock_in,clock_out").gte("clock_in", monthStartsAt).lt("clock_in", tomorrowStartsAt).is("deleted_at", null).order("clock_in"),
     ]);
-    requireSuccessfulQueries("dashboard", [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult, compensationReportResult, compensationTermsResult]);
+    requireSuccessfulQueries("dashboard", [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult, compensationReportResult, compensationTermsResult, monthEntriesResult]);
 
     active = activeResult.data;
     recent = recentResult.data ?? [];
     categories = (categoriesResult.data ?? []).map((category) => ({ id: category.id, name: category.name, isActive: category.is_active }));
-    const compensationDays = (compensationReportResult.data ?? []).map((row: DashboardReportRow) => ({
+    const calendarRules = (await calendarRulesPromise).flat();
+    const leaveRows: LeaveEntryForBalance[] = (leavesResult.data ?? []).map((entry) => ({ leaveType: entry.leave_type as "vacation" | "sick", startDate: entry.start_date, endDate: entry.end_date, partialMinutes: entry.partial_minutes }));
+    const normalizedSchedules: ScheduleForBalance[] = (schedulesResult.data ?? []).map((schedule) => ({ effectiveFrom: schedule.effective_from, effectiveTo: schedule.effective_to, days: schedule.work_schedule_days.map((day) => ({ weekday: day.weekday, isWorkday: day.is_workday, targetMinutes: Number(day.target_minutes) })) }));
+    const calendarExceptions: ReportCalendarException[] = (exceptionsResult.data ?? []).map((item) => ({ date: item.exception_date, type: item.exception_type as ReportCalendarException["type"], targetMinutes: item.target_minutes == null ? null : Number(item.target_minutes) }));
+    let monthDays = applyIsraelCalendar((compensationReportResult.data ?? []).map((row: DashboardReportRow) => ({
       date: row.work_date,
+      expectedMinutes: Number(row.expected_minutes) || 0,
       workedMinutes: completedWorkedMinutes(row.worked_minutes, row.first_clock_in, row.last_clock_out),
       creditedAbsenceMinutes: Number(row.credited_absence_minutes) || 0,
-      future: false,
+      manualAdjustmentMinutes: Number(row.manual_adjustment_minutes) || 0,
+      finalBalanceMinutes: Number(row.final_balance_minutes) || 0,
+      missingMinutes: Number(row.missing_minutes) || 0,
+      overtimeMinutes: Number(row.overtime_minutes) || 0,
+      sessions: Number(row.sessions) || 0,
+      future: row.work_date > today,
+      provisional: Boolean(row.provisional) || row.work_date === today,
+      holidayLabel: row.holiday_label ?? null,
+      shortenedDay: Boolean(row.shortened_day),
+    })), calendarRules, false);
+    monthDays = monthDays.map((day) => ({
+      ...day,
+      expectedMinutes: expectedMinutesForDate({ date: day.date, rpcExpectedMinutes: day.expectedMinutes, schedules: normalizedSchedules, exceptions: calendarExceptions, rules: calendarRules }),
     }));
+    monthDays = reconcileReportDays(monthDays, leaveRows, false);
+    const monthEntries = monthEntriesResult.data ?? [];
+    const incompleteEntryDates = [...new Set(monthEntries.filter((entry) => !entry.clock_out).map((entry) => formatInTimeZone(entry.clock_in, timezone, "yyyy-MM-dd")))];
+    dashboardAnalytics = buildReportAnalytics({
+      days: monthDays,
+      today,
+      leaves: leaveRows,
+      incompleteEntryDates,
+      entries: monthEntries.filter((entry): entry is typeof entry & { clock_out: string } => Boolean(entry.clock_out)).map((entry) => ({ id: entry.id, clockIn: entry.clock_in, clockOut: entry.clock_out })),
+    });
+    const compensationDays = monthDays.map((day) => ({ date: day.date, workedMinutes: day.workedMinutes, creditedAbsenceMinutes: day.creditedAbsenceMinutes, future: day.future }));
     const compensationTerms: CompensationTerm[] = ((compensationTermsResult.data ?? []) as EmploymentTermRow[]).map((term) => ({
       effectiveFrom: term.effective_from,
       effectiveTo: term.effective_to,
@@ -141,7 +178,7 @@ export default async function DashboardPage() {
       future: row.work_date > today,
       holidayLabel: row.holiday_label ?? null,
       shortenedDay: Boolean(row.shortened_day),
-    })), (await calendarRulesPromise).flat(), false);
+    })), calendarRules, false);
 
     for (const row of weekDays) {
       weeklyWorked += row.workedMinutes;
@@ -152,7 +189,6 @@ export default async function DashboardPage() {
       }
     }
 
-    const leaveRows: LeaveEntryForBalance[] = (leavesResult.data ?? []).map((entry) => ({ leaveType: entry.leave_type as "vacation" | "sick", startDate: entry.start_date, endDate: entry.end_date, partialMinutes: entry.partial_minutes }));
     const leaveYearSet = new Set<number>([Number(today.slice(0, 4))]);
     for (const entry of leaveRows) {
       for (let year = Number(entry.startDate.slice(0, 4)); year <= Number(entry.endDate.slice(0, 4)); year += 1) leaveYearSet.add(year);
@@ -163,8 +199,8 @@ export default async function DashboardPage() {
       asOf: today,
       adjustments: (balancesResult.data ?? []).map((item) => ({ leaveType: item.leave_type as "vacation" | "sick", minutes: Number(item.minutes) })),
       leaves: leaveRows,
-      schedules: (schedulesResult.data ?? []).map((schedule) => ({ effectiveFrom: schedule.effective_from, effectiveTo: schedule.effective_to, days: schedule.work_schedule_days.map((day) => ({ weekday: day.weekday, isWorkday: day.is_workday, targetMinutes: day.target_minutes })) })) as ScheduleForBalance[],
-      exceptions: (exceptionsResult.data ?? []).map((item) => ({ date: item.exception_date, type: item.exception_type, targetMinutes: item.target_minutes })) as ExceptionForBalance[],
+      schedules: normalizedSchedules,
+      exceptions: calendarExceptions as ExceptionForBalance[],
       rules: leaveRules,
     });
     vacationMinutes = leaveBalances.vacation;
@@ -205,6 +241,8 @@ export default async function DashboardPage() {
             </div>
           </aside>
         </div>
+
+        <ReportAlerts analytics={dashboardAnalytics} month={today.slice(0, 7)} />
 
         <section className="card p-5" aria-labelledby="recent-entries-title">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

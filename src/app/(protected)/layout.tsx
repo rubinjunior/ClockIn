@@ -15,11 +15,13 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="min-h-dvh md:pe-[17rem]">
+    <div className="min-h-dvh">
       <OnlineStatus />
       {demoMode && <div role="status" className="no-print fixed inset-x-0 top-0 z-30 bg-[var(--warning-soft)] px-4 py-2 text-center text-xs font-bold text-[var(--warning)]">מצב הדגמה · הנתונים זמניים ואינם נשמרים</div>}
       <Navigation />
-      <main id="main-content" className="app-main mx-auto w-full max-w-6xl px-4 pb-28 pt-12 sm:px-6 md:pb-10 md:pt-12">{children}</main>
+      <div className="md:ps-[17rem]">
+        <main id="main-content" className="app-main mx-auto w-full max-w-6xl px-4 pb-28 pt-12 sm:px-6 md:pb-10 md:pt-12">{children}</main>
+      </div>
       <DebugOverlay enabled={debugEnabled} />
     </div>
   );
