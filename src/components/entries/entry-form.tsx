@@ -27,12 +27,12 @@ export function EntryForm({ categories, entry, initialDate, compact = false, ari
   const form = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
-  const [latestLocal, setLatestLocal] = useState("");
+  const [latestAllowedLocal, setLatestAllowedLocal] = useState("");
   const defaultStart = entry?.clockInLocal ?? (initialDate ? initialDate + "T09:00" : "");
   const defaultEnd = entry?.clockOutLocal ?? (initialDate ? initialDate + "T17:00" : "");
 
   useEffect(() => {
-    const update = () => setLatestLocal(formatInTimeZone(new Date(), timezone, "yyyy-MM-dd'T'HH:mm"));
+    const update = () => setLatestAllowedLocal(formatInTimeZone(new Date(), timezone, "yyyy-MM-dd") + "T23:59");
     update();
     const timer = window.setInterval(update, 60_000);
     return () => window.clearInterval(timer);
@@ -79,8 +79,8 @@ export function EntryForm({ categories, entry, initialDate, compact = false, ari
           </header>
           {entry && <input type="hidden" name="id" value={entry.id} />}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={he.entries.clockIn} name="clockInLocal" type="datetime-local" defaultValue={defaultStart} max={latestLocal || undefined} required />
-            <Field label={he.entries.clockOut} name="clockOutLocal" type="datetime-local" defaultValue={defaultEnd} max={latestLocal || undefined} required />
+            <Field label={he.entries.clockIn} name="clockInLocal" type="datetime-local" defaultValue={defaultStart} max={latestAllowedLocal || undefined} required />
+            <Field label={he.entries.clockOut} name="clockOutLocal" type="datetime-local" defaultValue={defaultEnd} max={latestAllowedLocal || undefined} required />
           </div>
           <p className="muted -mt-3 text-xs">{he.entries.noFuture}</p>
           <label className="field">

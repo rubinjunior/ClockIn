@@ -119,7 +119,7 @@ function EntryDialog({
   const router = useRouter();
   const form = useRef<HTMLFormElement>(null);
   const titleId = useId();
-  const [latestLocal, setLatestLocal] = useState("");
+  const [latestAllowedLocal, setLatestAllowedLocal] = useState("");
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
   const { entry, initialDate } = selection;
@@ -133,7 +133,7 @@ function EntryDialog({
   const invalidRange = durationMinutes !== null && durationMinutes <= 0;
 
   useEffect(() => {
-    const update = () => setLatestLocal(formatInTimeZone(new Date(), timezone, "yyyy-MM-dd'T'HH:mm"));
+    const update = () => setLatestAllowedLocal(formatInTimeZone(new Date(), timezone, "yyyy-MM-dd") + "T23:59");
     update();
     const timer = window.setInterval(update, 60_000);
     return () => window.clearInterval(timer);
@@ -198,8 +198,8 @@ function EntryDialog({
         </header>
         {entry && <input type="hidden" name="id" value={entry.id} />}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label={he.entries.clockIn} name="clockInLocal" type="datetime-local" value={clockInLocal} onChange={(event) => setClockInLocal(event.target.value)} max={latestLocal || undefined} required />
-          <Field label={he.entries.clockOut} name="clockOutLocal" type="datetime-local" value={clockOutLocal} onChange={(event) => setClockOutLocal(event.target.value)} min={clockInLocal || undefined} max={latestLocal || undefined} aria-invalid={invalidRange || undefined} required />
+          <Field label={he.entries.clockIn} name="clockInLocal" type="datetime-local" value={clockInLocal} onChange={(event) => setClockInLocal(event.target.value)} max={latestAllowedLocal || undefined} required />
+          <Field label={he.entries.clockOut} name="clockOutLocal" type="datetime-local" value={clockOutLocal} onChange={(event) => setClockOutLocal(event.target.value)} min={clockInLocal || undefined} max={latestAllowedLocal || undefined} aria-invalid={invalidRange || undefined} required />
         </div>
         <p className="muted -mt-3 text-xs">{he.entries.noFuture}</p>
         <div className={`flex min-h-16 items-center gap-3 rounded-2xl border p-3 ${invalidRange ? "border-[var(--error)]/30 bg-[var(--error-soft)] text-[var(--error)]" : "border-[var(--border-soft)] bg-[var(--background)]"}`}>

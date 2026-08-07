@@ -5,9 +5,15 @@ function israelToday() {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+function shiftDate(date: string, days: number) {
+  const value = new Date(date + "T12:00:00Z");
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 test("דוח ריק מתחיל באפס ומאפשר מעבר ללוח שנה", async ({ page }) => {
   await page.goto("/app/report?month=2026-07");
-  const overview = page.getByRole("heading", { name: "מאזן נכון להיום" }).locator("xpath=ancestor::section");
+  const overview = page.getByRole("heading", { name: "מאזן נוכחי" }).locator("xpath=ancestor::section");
   await expect(overview.getByText("שעות בפועל", { exact: true })).toBeVisible();
   await expect(overview.getByText("00:00", { exact: true }).first()).toBeVisible();
 
@@ -34,16 +40,27 @@ test("אפשר להוסיף דיווח ליום ישירות מתוך הדוח",
   const modal = page.locator("dialog[open]");
   await expect(modal.getByRole("heading", { name: "הוספת דיווח" })).toBeVisible();
   await expect(modal.getByRole("combobox", { name: "קטגוריה" })).toBeVisible();
-  await expect(modal.getByText("ניתן לדווח רק עד השעה הנוכחית")).toBeVisible();
-  await expect(modal.getByLabel("כניסה")).toHaveAttribute("max", /T/);
+  await expect(modal.getByText("ניתן לדווח עד סוף היום הנוכחי; ימים עתידיים חסומים")).toBeVisible();
+  await expect(modal.getByLabel("כניסה")).toHaveAttribute("max", /T23:59$/);
   await expect(modal.getByLabel("סיבת השינוי")).toHaveCount(0);
   await expect(page.locator("dialog")).toHaveCount(1);
   await modal.getByRole("button", { name: "שמירה" }).click();
   await expect(page.getByRole("status").filter({ hasText: "הדיווח נשמר לצורך ההדגמה" })).toBeVisible();
   await expect(page.locator("dialog")).toHaveCount(0);
 });
+
+test("אפשר להזין שעות מאוחרות מהשעה הנוכחית בתוך אותו היום", async ({ page }) => {
+  const today = israelToday();
+  await page.goto(`/app/report?month=${today.slice(0, 7)}&view=list`);
+  await page.getByRole("button", { name: `הוספת דיווח ${today}` }).click();
+  const modal = page.locator("dialog[open]");
+  await modal.getByLabel("כניסה").fill(`${today}T22:00`);
+  await modal.getByLabel("יציאה").fill(`${today}T23:00`);
+  await modal.getByRole("button", { name: "שמירה" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "הדיווח נשמר לצורך ההדגמה" })).toBeVisible();
+});
 test("טבלת הפירוט מציגה את שבע העמודות המבוקשות ושומרת על יישור", async ({ page }) => {
-  await page.goto("/app/report?view=list");
+  await page.goto("/app/report?month=2026-07&view=list");
   const dailyTable = page.getByRole("table", { name: "פירוט יומי" });
   await expect(dailyTable).toBeVisible();
   expect(await dailyTable.locator('[role="columnheader"]').allTextContents()).toEqual([
@@ -71,22 +88,41 @@ test("טבלת הפירוט מציגה את שבע העמודות המבוקשו
   await expect(container).toContainText("הפרש −08:30" );
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
-test("לא ניתן להוסיף דיווח ליום עתידי", async ({ page }) => {
+test("ימים שלא סומנו כימי עבודה מוצגים ללא תקן, הפרש או חוסר", async ({ page }) => {
   await page.goto("/app/report?month=2026-07&view=list");
-  await expect(page.getByRole("button", { name: "הוספת דיווח 2026-07-31" })).toHaveCount(0);
+  for (const date of ["2026-07-03", "2026-07-04"]) {
+    const row = page.locator(`[data-date="${date}"]:visible`);
+    await expect(row.locator('[data-cell="worked"] > span.metric-value')).toHaveText("00:00");
+    await expect(row.locator('[data-cell="worked"]')).not.toContainText("תקן");
+    await expect(row.locator('[data-cell="status"]')).toContainText("—");
+    await expect(row.locator('[data-cell="status"]')).not.toContainText("חסר דיווח");
+  }
+
+  const missingReport = page.locator('[data-date="2026-07-02"]:visible').getByText("חסר דיווח", { exact: true });
+  await expect(missingReport).toHaveCSS("background-color", "rgb(255, 250, 250)");
 });
-test("שכר משוער מחובר להגדרת השכר", async ({ page }) => {
-  await page.goto("/app/report?month=2026-07");
-  const compensationCard = page.getByText("שכר משוער", { exact: true }).locator("..");
+test("לא ניתן להוסיף דיווח ליום עתידי", async ({ page }) => {
+  const tomorrow = shiftDate(israelToday(), 1);
+  await page.goto(`/app/report?month=${tomorrow.slice(0, 7)}&view=list`);
+  await expect(page.getByRole("button", { name: `הוספת דיווח ${tomorrow}` })).toHaveCount(0);
+});
+test("שכר משוער מוצג בבית ולא בדוח", async ({ page }) => {
+  await page.goto("/app");
+  const compensationCard = page.getByRole("heading", { name: "שכר משוער החודש" }).locator("..");
   await expect(compensationCard.getByText(/₪/)).toBeVisible();
   await expect(compensationCard.getByText(/לפני ניכויים ותוספות/)).toBeVisible();
+
+  await page.goto("/app/report?month=2026-07");
+  await expect(page.getByText("שכר משוער החודש", { exact: true })).toHaveCount(0);
 });
 
-test("היום הנוכחי מסומן בתהליך ולא כחוסר", async ({ page }) => {
+
+test("היום הנוכחי אינו מסומן כחסר דיווח", async ({ page }) => {
   const today = israelToday();
   await page.goto(`/app/report?month=${today.slice(0, 7)}&view=list`);
   const day = page.locator(`[data-report-date="${today}"]:visible`);
-  await expect(day.getByText("בתהליך", { exact: true })).toBeVisible();
+  await expect(day).toBeVisible();
+  await expect(day.locator('[data-cell="status"]')).not.toContainText("חסר דיווח");
 });
 
 test("מלוח השנה אפשר להגיע ישירות לעריכת היום", async ({ page }) => {
@@ -96,12 +132,16 @@ test("מלוח השנה אפשר להגיע ישירות לעריכת היום",
   await expect(page.locator('[data-report-date="2026-07-20"]:visible')).toBeFocused();
 });
 
-test("הדוח מפריד בין יעד עד היום לתקן החודשי", async ({ page }) => {
-  await page.goto("/app/report?month=2026-07");
-  await expect(page.getByRole("heading", { name: "מאזן נכון להיום" })).toBeVisible();
-  await expect(page.getByText("יעד עד היום", { exact: true })).toBeVisible();
+test("הדוח מציג תמיד מצב נוכחי ללא בחירת טווח", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07&mode=full");
+  await expect(page.getByRole("heading", { name: "מאזן נוכחי" })).toBeVisible();
+  await expect(page.getByText("תקן מצטבר", { exact: true })).toBeVisible();
   await expect(page.getByText("תקן חודשי מלא", { exact: true })).toBeVisible();
   await expect(page.getByText("ימי עבודה שנותרו", { exact: true })).toBeVisible();
+  await expect(page.getByText("עד היום", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("חודש מלא", { exact: true })).toHaveCount(0);
+  const reportLinks = await page.locator('a[href^="?"]').evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
+  expect(reportLinks.every((href) => !href.includes("mode="))).toBe(true);
   await page.getByText("איך חושב התקן?", { exact: true }).click();
   await expect(page.getByText("ימי תקן בחודש", { exact: true })).toBeVisible();
 });
@@ -129,22 +169,23 @@ test("יום ללא שעת התחלה או סיום מציג אפס שעות ב�
   await expect(day.locator('[data-cell="worked"]').getByText("00:00", { exact: true })).toBeVisible();
 });
 test("יום עתידי מציג אפס שעות ללא זמני דיווח", async ({ page }) => {
-  await page.goto("/app/report?month=2026-07&view=list");
-  const future = page.locator('[data-date="2026-07-30"]:visible');
+  const tomorrow = shiftDate(israelToday(), 1);
+  await page.goto(`/app/report?month=${tomorrow.slice(0, 7)}&view=list`);
+  const future = page.locator(`[data-date="${tomorrow}"]:visible`);
   await expect(future.getByText("עתידי", { exact: true })).toBeVisible();
   await expect(future.locator('[data-cell="start"]')).toContainText("—");
   await expect(future.locator('[data-cell="end"]')).toContainText("—");
   await expect(future.locator('[data-cell="worked"] > span.metric-value')).toHaveText("00:00");
 });
-test("הפירוט היומי מופיע לפני הניתוחים המתקדמים והדוח לא מרנדר עשרות טפסים", async ({ page }) => {
+test("המאזן והניתוחים מופיעים לפני הפירוט היומי והדוח לא מרנדר עשרות טפסים", async ({ page }) => {
   await page.goto("/app/report?month=2026-07");
   const positions = await Promise.all([
     page.getByRole("heading", { name: "פירוט יומי" }).boundingBox(),
-    page.getByRole("heading", { name: "מאזן נכון להיום" }).boundingBox(),
+    page.getByRole("heading", { name: "מאזן נוכחי" }).boundingBox(),
   ]);
   expect(positions[0]).not.toBeNull();
   expect(positions[1]).not.toBeNull();
-  expect(positions[0]!.y).toBeLessThan(positions[1]!.y);
+  expect(positions[1]!.y).toBeLessThan(positions[0]!.y);
   await expect(page.locator("dialog")).toHaveCount(0);
   expect(await page.locator("form").count()).toBeLessThan(5);
 });

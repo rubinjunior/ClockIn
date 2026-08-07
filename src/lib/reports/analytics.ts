@@ -28,6 +28,7 @@ export type AnalyticsEntry = {
 export type ReportDayStatus =
   | "future"
   | "inProgress"
+  | "unscheduled"
   | "holiday"
   | "shortened"
   | "vacation"
@@ -88,21 +89,22 @@ function reportInteger(value: number) {
 }
 
 export function getReportDayStatus(day: AnalyticsDay, leaves: AnalyticsLeave[], incompleteDates: Set<string>): ReportDayStatus {
-  if (day.future) return "future";
-  if (incompleteDates.has(day.date)) return "incomplete";
-  if (day.provisional) return "inProgress";
-  if (day.holidayLabel && day.expectedMinutes === 0) return "holiday";
-  if (day.shortenedDay) return "shortened";
-  const leave = matchingLeave(day, leaves);
-  if (leave?.leaveType === "vacation" && day.creditedAbsenceMinutes > 0) return "vacation";
-  if (leave?.leaveType === "sick" && day.creditedAbsenceMinutes > 0) return "sick";
   const expectedMinutes = Math.max(0, reportInteger(day.expectedMinutes));
   const workedMinutes = Math.max(0, reportInteger(day.workedMinutes));
   const creditedAbsenceMinutes = Math.max(0, reportInteger(day.creditedAbsenceMinutes));
   const manualAdjustmentMinutes = reportInteger(day.manualAdjustmentMinutes);
-  if (workedMinutes === 0 && creditedAbsenceMinutes === 0 && manualAdjustmentMinutes === 0) return "missingReport";
-  if (expectedMinutes === 0) return workedMinutes > 0 ? "overtime" : "completed";
+  if (day.future) return "future";
+  if (incompleteDates.has(day.date)) return "incomplete";
+  if (day.holidayLabel && expectedMinutes === 0) return "holiday";
+  if (expectedMinutes === 0 && workedMinutes === 0 && creditedAbsenceMinutes === 0 && manualAdjustmentMinutes === 0) return "unscheduled";
+  if (day.provisional) return "inProgress";
+  if (day.shortenedDay) return "shortened";
+  const leave = matchingLeave(day, leaves);
+  if (leave?.leaveType === "vacation" && creditedAbsenceMinutes > 0) return "vacation";
+  if (leave?.leaveType === "sick" && creditedAbsenceMinutes > 0) return "sick";
   const balance = workedMinutes + creditedAbsenceMinutes + manualAdjustmentMinutes - expectedMinutes;
+  if (expectedMinutes === 0) return balance > 0 ? "overtime" : balance < 0 ? "missingHours" : "unscheduled";
+  if (workedMinutes === 0 && creditedAbsenceMinutes === 0 && manualAdjustmentMinutes === 0) return "missingReport";
   if (balance < 0) return "missingHours";
   if (balance > 0) return "overtime";
   return "completed";

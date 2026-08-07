@@ -1,21 +1,22 @@
 import { addDays, format, startOfDay, subDays } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
-import { Bell, CalendarDays, ChevronLeft, Gauge, HeartPulse, Palmtree, Settings, Tag } from "lucide-react";
+import { Bell, CalendarDays, ChevronLeft, Coins, Gauge, HeartPulse, Palmtree, Settings, Tag } from "lucide-react";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { LiveClockCard } from "@/components/clock/live-clock-card";
 import { EntryEditorProvider, EntryEditorTrigger } from "@/components/entries/entry-editor";
 import type { EditableEntry, EntryFormCategory } from "@/components/entries/entry-form";
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { formatLocalDate, formatMinutes, formatTime } from "@/lib/formatting";
+import { formatCurrency, formatLocalDate, formatMinutes, formatTime } from "@/lib/formatting";
 import { he } from "@/lib/i18n/he";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { requireUser } from "@/lib/supabase/session";
 import { getCurrentProfile } from "@/lib/supabase/profile";
-import { demoEntries, isDemoMode } from "@/lib/demo";
+import { demoEntries, demoReportRows, isDemoMode } from "@/lib/demo";
 import { getIsraelCalendarRules } from "@/lib/holidays/israel";
 import { applyIsraelCalendar } from "@/lib/reports/israel-calendar";
+import { estimateMonthlyCompensation, type CompensationEstimate, type CompensationTerm } from "@/lib/reports/compensation";
 import { completedWorkedMinutes } from "@/lib/reports/worked-minutes";
 import { calculateLeaveBalances, type ExceptionForBalance, type LeaveEntryForBalance, type ScheduleForBalance } from "@/lib/leave/balances";
 
@@ -30,6 +31,14 @@ type ReminderSetting = {
   local_time: string;
   timezone: string;
   weekdays: number[];
+};
+type EmploymentTermRow = {
+  effective_from: string;
+  effective_to: string | null;
+  compensation_enabled: boolean;
+  mode: "hidden" | "hourly" | "global";
+  hourly_rate: number | null;
+  monthly_salary: number | null;
 };
 
 function findNextReminder(settings: ReminderSetting[], now: Date, timezone: string) {
@@ -52,6 +61,8 @@ function findNextReminder(settings: ReminderSetting[], now: Date, timezone: stri
 }
 
 export default async function DashboardPage() {
+  const today = formatInTimeZone(new Date(), "Asia/Jerusalem", "yyyy-MM-dd");
+  const monthStart = today.slice(0, 7) + "-01";
   const user = await requireUser();
   let profile: { username: string; timezone: string } | null = null;
   let active: { clock_in: string } | null = null;
@@ -64,6 +75,7 @@ export default async function DashboardPage() {
   let vacationMinutes = 0;
   let sickMinutes = 0;
   let nextReminder: ReminderSetting | null = null;
+  let compensation: CompensationEstimate = { visible: false, amount: 0, mode: "hidden" };
 
   if (isDemoMode()) {
     profile = { username: user.user_metadata.username, timezone: "Asia/Jerusalem" };
@@ -71,16 +83,18 @@ export default async function DashboardPage() {
     active = activeValue ? { clock_in: activeValue } : null;
     recent = demoEntries().map((entry) => ({ id: entry.id, clock_in: entry.clockIn, clock_out: entry.clockOut, category_id: entry.categoryId ?? null, note: entry.note ?? null }));
     weeklyWorked = recent.reduce((total, entry) => total + (entry.clock_out ? Math.round((new Date(entry.clock_out).getTime() - new Date(entry.clock_in).getTime()) / 60000) : 0), 0);
+    const demoCompensationTerms: CompensationTerm[] = [{ effectiveFrom: monthStart, effectiveTo: null, enabled: true, mode: "hourly", hourlyRate: 62.5, monthlySalary: null }];
+    compensation = estimateMonthlyCompensation(demoReportRows(today.slice(0, 7)).filter((day) => day.date <= today), demoCompensationTerms, false);
   } else {
     profile = await getCurrentProfile();
     const supabase = await createClient();
     const timezone = profile?.timezone ?? "Asia/Jerusalem";
     const localNow = toZonedTime(new Date(), timezone);
-    const today = format(localNow, "yyyy-MM-dd");
+
     const weekStart = format(subDays(localNow, localNow.getDay()), "yyyy-MM-dd");
     const calendarRulesPromise = Promise.all([...new Set([weekStart.slice(0, 4), today.slice(0, 4)])].map((year) => getIsraelCalendarRules(Number(year))));
 
-    const [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult] = await Promise.all([
+    const [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult, compensationReportResult, compensationTermsResult] = await Promise.all([
       supabase.from("time_entries").select("clock_in").is("clock_out", null).is("deleted_at", null).maybeSingle(),
       supabase.from("time_entries").select("id,clock_in,clock_out,category_id,note").not("clock_out", "is", null).is("deleted_at", null).order("clock_in", { ascending: false }).limit(4),
       supabase.rpc("monthly_report", { month_start: weekStart, month_end: today, include_future: false }),
@@ -90,12 +104,29 @@ export default async function DashboardPage() {
       supabase.from("work_schedule_versions").select("effective_from,effective_to,work_schedule_days(weekday,is_workday,target_minutes)").order("effective_from"),
       supabase.from("calendar_exceptions").select("exception_date,exception_type,target_minutes").lte("exception_date", today),
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
+      supabase.rpc("monthly_report", { month_start: monthStart, month_end: today, include_future: false }),
+      supabase.from("employment_terms").select("effective_from,effective_to,compensation_enabled,mode,hourly_rate,monthly_salary").lte("effective_from", today).or(`effective_to.is.null,effective_to.gte.${monthStart}`).order("effective_from"),
     ]);
-    requireSuccessfulQueries("dashboard", [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult]);
+    requireSuccessfulQueries("dashboard", [activeResult, recentResult, weekResult, balancesResult, remindersResult, leavesResult, schedulesResult, exceptionsResult, categoriesResult, compensationReportResult, compensationTermsResult]);
 
     active = activeResult.data;
     recent = recentResult.data ?? [];
     categories = (categoriesResult.data ?? []).map((category) => ({ id: category.id, name: category.name, isActive: category.is_active }));
+    const compensationDays = (compensationReportResult.data ?? []).map((row: DashboardReportRow) => ({
+      date: row.work_date,
+      workedMinutes: completedWorkedMinutes(row.worked_minutes, row.first_clock_in, row.last_clock_out),
+      creditedAbsenceMinutes: Number(row.credited_absence_minutes) || 0,
+      future: false,
+    }));
+    const compensationTerms: CompensationTerm[] = ((compensationTermsResult.data ?? []) as EmploymentTermRow[]).map((term) => ({
+      effectiveFrom: term.effective_from,
+      effectiveTo: term.effective_to,
+      enabled: term.compensation_enabled,
+      mode: term.mode,
+      hourlyRate: term.hourly_rate == null ? null : Number(term.hourly_rate),
+      monthlySalary: term.monthly_salary == null ? null : Number(term.monthly_salary),
+    }));
+    compensation = estimateMonthlyCompensation(compensationDays, compensationTerms, false);
 
     const weekDays = applyIsraelCalendar((weekResult.data ?? []).map((row: DashboardReportRow) => ({
       date: row.work_date,
@@ -144,6 +175,7 @@ export default async function DashboardPage() {
 
   const username = profile?.username ?? user.user_metadata.username ?? "חבר";
   const reminderLabel = nextReminder?.reminder_type === "clock_in" ? he.clock.start : he.clock.stop;
+  const compensationDetail = compensation.mode === "hourly" ? he.dashboard.compensationHourlyDetail : compensation.mode === "global" ? he.dashboard.compensationGlobalDetail : he.dashboard.compensationMixedDetail;
 
   const timezone = profile?.timezone ?? "Asia/Jerusalem";
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
@@ -165,6 +197,7 @@ export default async function DashboardPage() {
           <LiveClockCard activeClockIn={active?.clock_in} workedMinutes={todayWorked} expectedMinutes={todayExpected}/>
           <aside className="grid gap-3" aria-label={he.dashboard.weeklySnapshot}>
             <WeekProgressCard worked={weeklyWorked} expected={weeklyExpected} balance={weeklyBalance} progress={weeklyProgress} />
+            {compensation.visible && <CompensationCard amount={compensation.amount} detail={compensationDetail} />}
             <div className="grid grid-cols-2 gap-3">
               <SummaryCard icon={Palmtree} label={he.dashboard.vacation} value={formatMinutes(vacationMinutes)} tone="success"/>
               <SummaryCard icon={HeartPulse} label={he.dashboard.sick} value={formatMinutes(sickMinutes)}/>
@@ -205,5 +238,15 @@ function WeekProgressCard({ worked, expected, balance, progress }: { worked: num
     <div className="flex items-start justify-between gap-3"><div><h2 id="week-progress-title" className="muted text-sm font-bold">{he.dashboard.weeklyProgress}</h2><p className="metric-value mt-1 text-2xl font-extrabold">{formatMinutes(worked)} <span className="muted text-base">/ {formatMinutes(expected)}</span></p></div><span className="grid size-11 place-items-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)]"><Gauge aria-hidden size={22}/></span></div>
     <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--background)]" role="progressbar" aria-label={he.dashboard.weeklyProgress} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span className="block h-full rounded-full bg-[var(--primary)] transition-[width] duration-300" style={{ width: `${progress}%` }}/></div>
     <div className="mt-3 flex items-center justify-between gap-3 text-sm"><span className="muted">{progress}% {he.dashboard.completed}</span><b className={balance < 0 ? "text-[var(--error)]" : "text-[var(--success)]"}>{balanceText}</b></div>
+  </section>;
+}
+function CompensationCard({ amount, detail }: { amount: number; detail: string }) {
+  return <section className="card flex items-center gap-4 p-5" aria-labelledby="dashboard-compensation-title">
+    <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[var(--success-soft)] text-[var(--success)]"><Coins aria-hidden size={22}/></span>
+    <div className="min-w-0 flex-1">
+      <h2 id="dashboard-compensation-title" className="text-sm font-bold">{he.dashboard.compensation}</h2>
+      <strong className="metric-value mt-1 block text-2xl text-[var(--success)]">{formatCurrency(amount)}</strong>
+      <p className="muted mt-1 text-xs leading-5">{detail}</p>
+    </div>
   </section>;
 }

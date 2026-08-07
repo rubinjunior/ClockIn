@@ -27,8 +27,7 @@ export async function saveEntry(formData: FormData) {
     : supabase.from("time_entries").insert(row);
   const { error } = await query;
   if (error) {
-    if (error.message.includes("overlap")) return { ok: false, message: "הדיווח חופף לדיווח קיים" };
-    if (error.message.includes("future_time_entry")) return { ok: false, message: "לא ניתן להזין שעות עתידיות" };
+    if (error.message.includes("future_time_entry")) return { ok: false, message: "לא ניתן להזין דיווח ליום עתידי" };
     return { ok: false, message: "לא ניתן לשמור את הדיווח" };
   }
   revalidateEntryViews();

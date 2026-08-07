@@ -28,8 +28,8 @@ export type CompositionItem = {
   href: string;
 };
 
-function reportHref(month: string, full: boolean, params: Record<string, string>) {
-  const query = new URLSearchParams({ month, mode: full ? "full" : "to-date", view: "list", ...params });
+function reportHref(month: string, params: Record<string, string>) {
+  const query = new URLSearchParams({ month, view: "list", ...params });
   return "?" + query.toString();
 }
 
@@ -55,16 +55,16 @@ function AlertIcon({ severity }: { severity: ReportAlert["severity"] }) {
   return <Info aria-hidden size={20} />;
 }
 
-function AlertRow({ alert, analytics, month, full, groupCount = 1 }: { alert: ReportAlert; analytics: ReportAnalytics; month: string; full: boolean; groupCount?: number }) {
+function AlertRow({ alert, analytics, month, groupCount = 1 }: { alert: ReportAlert; analytics: ReportAnalytics; month: string; groupCount?: number }) {
   const [title, detail] = alertCopy(alert, analytics, groupCount);
   const href = alert.kind === "missingReport" && groupCount > 1
-    ? reportHref(month, full, { status: "missingReport" })
+    ? reportHref(month, { status: "missingReport" })
     : alert.kind === "incomplete"
     ? "/app"
     : alert.date
-      ? reportHref(month, full, { editDate: alert.date })
+      ? reportHref(month, { editDate: alert.date })
       : alert.weekStart
-        ? reportHref(month, full, { week: alert.weekStart })
+        ? reportHref(month, { week: alert.weekStart })
         : `/app/entries?month=${month}`;
   const action = alert.kind === "missingReport" && groupCount > 1 ? he.report.openMissingReports : alert.kind === "incomplete" ? he.report.openClock : alert.date ? he.report.openDay : alert.weekStart ? he.report.openWeek : he.report.openEntries;
   const tone = alert.severity === "critical"
@@ -88,12 +88,10 @@ function AlertRow({ alert, analytics, month, full, groupCount = 1 }: { alert: Re
 export function ReportOverview({
   analytics,
   month,
-  full,
   composition,
 }: {
   analytics: ReportAnalytics;
   month: string;
-  full: boolean;
   composition: CompositionItem[];
 }) {
   const positive = analytics.balanceToDateMinutes >= 0;
@@ -155,7 +153,7 @@ export function ReportOverview({
           <div><h2 id="weekly-summary-title" className="text-xl font-extrabold">{he.report.weeklySummary}</h2><p className="muted mt-1 text-sm">{he.report.weeklyDescription}</p></div>
         </div>
         <div className="mt-5 grid gap-3 md:hidden">
-          {analytics.weeks.map((week) => <WeekCard key={week.key} week={week} href={reportHref(month, full, { week: week.key })} />)}
+          {analytics.weeks.map((week) => <WeekCard key={week.key} week={week} href={reportHref(month, { week: week.key })} />)}
         </div>
         <div className="mt-5 hidden overflow-hidden rounded-2xl border border-[var(--border-soft)] md:block">
           <table className="w-full border-collapse text-sm">
@@ -163,7 +161,7 @@ export function ReportOverview({
             <tbody>{analytics.weeks.map((week) => {
               const state = weekState(week);
               return <tr key={week.key} className="border-t border-[var(--border-soft)]">
-                <td className="p-0"><Link className="block min-h-12 p-3 font-bold text-[var(--primary)]" href={reportHref(month, full, { week: week.key })}>{he.report.week} {week.number}</Link></td>
+                <td className="p-0"><Link className="block min-h-12 p-3 font-bold text-[var(--primary)]" href={reportHref(month, { week: week.key })}>{he.report.week} {week.number}</Link></td>
                 <td className="p-3 text-center"><MinuteValue minutes={week.workedMinutes + week.creditedMinutes} /></td>
                 <td className="p-3 text-center"><MinuteValue minutes={week.expectedMinutes} /></td>
                 <td className="p-3 text-center font-bold"><MinuteValue minutes={week.balanceMinutes} /></td>
@@ -183,8 +181,8 @@ export function ReportOverview({
           <div className="mt-5 flex min-h-20 items-center gap-3 rounded-2xl bg-[var(--success-soft)] p-4 text-[var(--success)]"><CircleCheckBig aria-hidden /><strong>{he.report.noAlerts}</strong></div>
         ) : (
           <div className="mt-5 grid gap-2">
-            {visibleAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} full={full} groupCount={alert.kind === "missingReport" ? missingReportAlerts.length : 1} />)}
-            {hiddenAlerts.length > 0 && <details className="rounded-2xl border border-[var(--border-soft)] p-3"><summary className="cursor-pointer font-bold text-[var(--primary)]">{he.report.moreAlerts} ({hiddenAlerts.length})</summary><div className="mt-3 grid gap-2">{hiddenAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} full={full} groupCount={alert.kind === "missingReport" ? missingReportAlerts.length : 1} />)}</div></details>}
+            {visibleAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} groupCount={alert.kind === "missingReport" ? missingReportAlerts.length : 1} />)}
+            {hiddenAlerts.length > 0 && <details className="rounded-2xl border border-[var(--border-soft)] p-3"><summary className="cursor-pointer font-bold text-[var(--primary)]">{he.report.moreAlerts} ({hiddenAlerts.length})</summary><div className="mt-3 grid gap-2">{hiddenAlerts.map((alert) => <AlertRow key={alert.id} alert={alert} analytics={analytics} month={month} groupCount={alert.kind === "missingReport" ? missingReportAlerts.length : 1} />)}</div></details>}
           </div>
         )}
       </section>

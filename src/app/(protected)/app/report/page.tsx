@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { CalendarDays, ChevronLeft, ChevronRight, Coins, LayoutList, Pencil } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, LayoutList, Pencil } from "lucide-react";
 import { ReportActions } from "@/components/reports/report-actions";
 import { ReportDayFocus } from "@/components/reports/report-day-focus";
 import { ReportOverview, type CompositionItem } from "@/components/reports/report-overview";
@@ -10,12 +10,11 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSuccessfulQueries } from "@/lib/supabase/query-error";
 import { getCurrentProfile } from "@/lib/supabase/profile";
 import { summarizeCategorizedSessions } from "@/lib/reports/category-summary";
-import { formatCurrency, formatMinutes, formatTime } from "@/lib/formatting";
+import { formatMinutes, formatTime } from "@/lib/formatting";
 import { demoReportRows, isDemoMode } from "@/lib/demo";
 import { he } from "@/lib/i18n/he";
 import { getIsraelCalendarRules } from "@/lib/holidays/israel";
 import { applyIsraelCalendar } from "@/lib/reports/israel-calendar";
-import { estimateMonthlyCompensation, type CompensationTerm } from "@/lib/reports/compensation";
 import { type LeaveEntryForBalance, type ScheduleForBalance } from "@/lib/leave/balances";
 import { israelMonth, israelToday } from "@/lib/time/israel";
 import { buildReportAnalytics, type ReportDayStatus } from "@/lib/reports/analytics";
@@ -48,23 +47,14 @@ type ReportEntry = {
   note: string | null;
 };
 
-type EmploymentTermRow = {
-  effective_from: string;
-  effective_to: string | null;
-  compensation_enabled: boolean;
-  mode: "hidden" | "hourly" | "global";
-  hourly_rate: number | null;
-  monthly_salary: number | null;
-};
-
 function shiftMonth(month: string, offset: number) {
   const date = new Date(month + "-01T00:00:00Z");
   date.setUTCMonth(date.getUTCMonth() + offset);
   return date.toISOString().slice(0, 7);
 }
 
-function reportHref(month: string, full: boolean, view: "list" | "calendar", extra: Record<string, string> = {}) {
-  return "?" + new URLSearchParams({ month, mode: full ? "full" : "to-date", view, ...extra }).toString();
+function reportHref(month: string, view: "list" | "calendar", extra: Record<string, string> = {}) {
+  return "?" + new URLSearchParams({ month, view, ...extra }).toString();
 }
 
 function editableEntry(entry: ReportEntry, timezone: string): EditableEntry {
@@ -77,11 +67,10 @@ function editableEntry(entry: ReportEntry, timezone: string): EditableEntry {
   };
 }
 
-export default async function ReportPage({ searchParams }: { searchParams: Promise<{ month?: string; mode?: string; view?: string; editDate?: string; category?: string; status?: string; week?: string }> }) {
+export default async function ReportPage({ searchParams }: { searchParams: Promise<{ month?: string; view?: string; editDate?: string; category?: string; status?: string; week?: string }> }) {
   const params = await searchParams;
   const current = israelMonth();
   const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : current;
-  const full = params.mode === "full";
   const view = params.view === "calendar" ? "calendar" : "list";
   const focusDate = /^\d{4}-\d{2}-\d{2}$/.test(params.editDate ?? "") ? params.editDate : undefined;
   const categoryFilter = params.category?.slice(0, 80);
@@ -104,31 +93,28 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   let leaveEntries: Array<{ leave_type: string; start_date: string; end_date: string; partial_minutes: number | null }> = [];
   let categories: EntryFormCategory[] = [];
   let reportEntries: ReportEntry[] = [];
-  let compensationTerms: CompensationTerm[] = [];
   let incompleteEntryDates: string[] = [];
   let schedules: ScheduleForBalance[] = [];
   let calendarExceptions: ReportCalendarException[] = [];
 
   if (demoMode) {
     days = demoReportRows(month).map((day) => ({ ...day, firstClockIn: null, lastClockOut: null, holidayLabel: null, shortenedDay: false, provisional: day.date === today }));
-    compensationTerms = [{ effectiveFrom: start, effectiveTo: null, enabled: true, mode: "hourly", hourlyRate: 62.5, monthlySalary: null }];
   } else {
     const [profile, supabase] = await Promise.all([getCurrentProfile(), createClient()]);
     timezone = profile.timezone;
     const startsAt = fromZonedTime(start + "T00:00:00", timezone).toISOString();
     const endsAt = fromZonedTime(endExclusiveDate.toISOString().slice(0, 10) + "T00:00:00", timezone).toISOString();
 
-    const [reportResult, leaveResult, categoriesResult, entriesResult, compensationResult, incompleteResult, schedulesResult, exceptionsResult] = await Promise.all([
+    const [reportResult, leaveResult, categoriesResult, entriesResult, incompleteResult, schedulesResult, exceptionsResult] = await Promise.all([
       supabase.rpc("monthly_report", { month_start: start, month_end: end, include_future: true }),
       supabase.from("leave_entries").select("leave_type,start_date,end_date,partial_minutes").eq("status", "approved").lte("start_date", end).gte("end_date", start),
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
       supabase.from("time_entries").select("id,clock_in,clock_out,category_id,note").lt("clock_in", endsAt).gt("clock_out", startsAt).is("deleted_at", null).not("clock_out", "is", null).order("clock_in"),
-      supabase.from("employment_terms").select("effective_from,effective_to,compensation_enabled,mode,hourly_rate,monthly_salary").lte("effective_from", end).or(`effective_to.is.null,effective_to.gte.${start}`).order("effective_from"),
       supabase.from("time_entries").select("clock_in").gte("clock_in", startsAt).lt("clock_in", endsAt).is("clock_out", null).is("deleted_at", null),
       supabase.from("work_schedule_versions").select("effective_from,effective_to,work_schedule_days(weekday,is_workday,target_minutes)").order("effective_from"),
       supabase.from("calendar_exceptions").select("exception_date,exception_type,target_minutes"),
     ]);
-    requireSuccessfulQueries("report", [reportResult, leaveResult, categoriesResult, entriesResult, compensationResult, incompleteResult, schedulesResult, exceptionsResult]);
+    requireSuccessfulQueries("report", [reportResult, leaveResult, categoriesResult, entriesResult, incompleteResult, schedulesResult, exceptionsResult]);
 
     days = (reportResult.data ?? []).map((row: {
       work_date: string;
@@ -166,7 +152,6 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
     categories = (categoriesResult.data ?? []).map((category) => ({ id: category.id, name: category.name, isActive: category.is_active }));
     reportEntries = (entriesResult.data ?? []).filter((entry): entry is ReportEntry => Boolean(entry.clock_out));
     incompleteEntryDates = [...new Set((incompleteResult.data ?? []).map((entry) => formatInTimeZone(entry.clock_in, timezone, "yyyy-MM-dd")))];
-    compensationTerms = ((compensationResult.data ?? []) as EmploymentTermRow[]).map((term) => ({ effectiveFrom: term.effective_from, effectiveTo: term.effective_to, enabled: term.compensation_enabled, mode: term.mode, hourlyRate: term.hourly_rate == null ? null : Number(term.hourly_rate), monthlySalary: term.monthly_salary == null ? null : Number(term.monthly_salary) }));
     schedules = (schedulesResult.data ?? []).map((schedule) => ({ effectiveFrom: schedule.effective_from, effectiveTo: schedule.effective_to, days: schedule.work_schedule_days.map((day) => ({ weekday: day.weekday, isWorkday: day.is_workday, targetMinutes: Number(day.target_minutes) })) }));
     calendarExceptions = (exceptionsResult.data ?? []).map((item) => ({ date: item.exception_date, type: item.exception_type as ReportCalendarException["type"], targetMinutes: item.target_minutes == null ? null : Number(item.target_minutes) }));
   }
@@ -201,8 +186,6 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   const sickDays = days
     .filter((day) => analytics.statusByDate[day.date] === "sick" && day.expectedMinutes > 0)
     .reduce((sum, day) => sum + day.creditedAbsenceMinutes / day.expectedMinutes, 0);
-  const compensation = estimateMonthlyCompensation(days, compensationTerms, full);
-  const compensationDetail = compensation.mode === "hourly" ? he.report.compensationHourlyDetail : compensation.mode === "global" ? (full ? he.report.compensationGlobalFullDetail : he.report.compensationGlobalToDateDetail) : he.report.compensationMixedDetail;
   const monthLabel = new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric" }).format(new Date(month + "-01T12:00:00Z"));
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
   const categorySummary = summarizeCategorizedSessions(reportEntries.map((entry) => ({ clockIn: entry.clock_in, clockOut: entry.clock_out, categoryId: entry.category_id })), timezone, start, end);
@@ -218,11 +201,11 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
   const sickMinutes = days.filter((day) => analytics.statusByDate[day.date] === "sick").reduce((sum, day) => sum + day.creditedAbsenceMinutes, 0);
   const composition: CompositionItem[] = visibleCategories
     .filter((category) => (categorySummary.totals[category.id] ?? 0) > 0)
-    .map((category) => ({ key: category.id, label: category.name, minutes: categorySummary.totals[category.id] ?? 0, days: categorySummary.dayCounts[category.id] ?? 0, href: reportHref(month, full, "list", { category: category.id }) }));
-  if (categorySummary.uncategorizedMinutes > 0) composition.unshift({ key: "uncategorized", label: he.report.uncategorized, minutes: categorySummary.uncategorizedMinutes, days: categorySummary.uncategorizedDays, href: reportHref(month, full, "list", { category: "uncategorized" }) });
-  if (fridayMinutes > 0) composition.push({ key: "friday", label: he.report.fridayWork, minutes: fridayMinutes, days: fridayDays.length, href: reportHref(month, full, "list", { status: "friday" }) });
-  if (vacationDays > 0) composition.push({ key: "vacation", label: he.report.vacationDays, minutes: vacationMinutes, days: vacationDays, href: reportHref(month, full, "list", { status: "vacation" }) });
-  if (sickDays > 0) composition.push({ key: "sick", label: he.report.sickDays, minutes: sickMinutes, days: sickDays, href: reportHref(month, full, "list", { status: "sick" }) });
+    .map((category) => ({ key: category.id, label: category.name, minutes: categorySummary.totals[category.id] ?? 0, days: categorySummary.dayCounts[category.id] ?? 0, href: reportHref(month, "list", { category: category.id }) }));
+  if (categorySummary.uncategorizedMinutes > 0) composition.unshift({ key: "uncategorized", label: he.report.uncategorized, minutes: categorySummary.uncategorizedMinutes, days: categorySummary.uncategorizedDays, href: reportHref(month, "list", { category: "uncategorized" }) });
+  if (fridayMinutes > 0) composition.push({ key: "friday", label: he.report.fridayWork, minutes: fridayMinutes, days: fridayDays.length, href: reportHref(month, "list", { status: "friday" }) });
+  if (vacationDays > 0) composition.push({ key: "vacation", label: he.report.vacationDays, minutes: vacationMinutes, days: vacationDays, href: reportHref(month, "list", { status: "vacation" }) });
+  if (sickDays > 0) composition.push({ key: "sick", label: he.report.sickDays, minutes: sickMinutes, days: sickDays, href: reportHref(month, "list", { status: "sick" }) });
 
   let visibleDays = days;
   let filterLabel: string | undefined;
@@ -255,41 +238,32 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
       </header>
 
       <section className="card flex flex-wrap items-center justify-between gap-3 p-3">
-        <Link aria-label={he.report.nextMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, 1), full, view)}><ChevronRight aria-hidden /></Link>
-        <div className="text-center"><h2 className="text-xl font-extrabold">{monthLabel}</h2><Link className="text-sm font-bold text-[var(--primary)]" href={reportHref(current, false, view)}>{he.report.currentMonth}</Link></div>
-        <Link aria-label={he.report.previousMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, -1), full, view)}><ChevronLeft aria-hidden /></Link>
+        <Link aria-label={he.report.nextMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, 1), view)}><ChevronRight aria-hidden /></Link>
+        <div className="text-center"><h2 className="text-xl font-extrabold">{monthLabel}</h2><Link className="text-sm font-bold text-[var(--primary)]" href={reportHref(current, view)}>{he.report.currentMonth}</Link></div>
+        <Link aria-label={he.report.previousMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, -1), view)}><ChevronLeft aria-hidden /></Link>
       </section>
 
-      <div className="no-print mx-auto flex rounded-full bg-[var(--surface-muted)] p-1" role="group" aria-label={he.report.rangeLabel}>
-        <Link href={reportHref(month, false, view)} className={"min-h-11 rounded-full px-5 py-2.5 font-bold " + (!full ? "bg-white text-[var(--primary)] shadow-sm" : "muted")}>{he.report.toDate}</Link>
-        <Link href={reportHref(month, true, view)} className={"min-h-11 rounded-full px-5 py-2.5 font-bold " + (full ? "bg-white text-[var(--primary)] shadow-sm" : "muted")}>{he.report.fullMonth}</Link>
-      </div>
+      <ReportOverview analytics={analytics} month={month} composition={composition} />
 
-
-      {compensation.visible && <section className="card flex flex-wrap items-center gap-4 p-5" aria-label={he.report.compensation}>
-        <span className="grid size-11 place-items-center rounded-2xl bg-[var(--success-soft)] text-[var(--success)]"><Coins aria-hidden /></span>
-        <div className="min-w-0 flex-1"><p className="text-sm font-bold">{he.report.compensation}</p><strong className="metric-value mt-1 block text-xl text-[var(--success)]">{formatCurrency(compensation.amount)}</strong><p className="muted mt-1 text-xs">{compensationDetail}</p></div>
-      </section>}
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-extrabold">{he.report.daily}</h2>
           <div className="no-print flex rounded-full bg-[var(--surface-muted)] p-1" role="group" aria-label={he.report.chooseView}>
-            <Link href={reportHref(month, full, "list")} className={"flex min-h-11 items-center gap-2 rounded-full px-4 py-2 font-bold " + (view === "list" ? "bg-white text-[var(--primary)] shadow-sm" : "muted")}><LayoutList aria-hidden size={18} />{he.report.listView}</Link>
-            <Link href={reportHref(month, full, "calendar")} className={"flex min-h-11 items-center gap-2 rounded-full px-4 py-2 font-bold " + (view === "calendar" ? "bg-white text-[var(--primary)] shadow-sm" : "muted")}><CalendarDays aria-hidden size={18} />{he.report.calendarView}</Link>
+            <Link href={reportHref(month, "list")} className={"flex min-h-11 items-center gap-2 rounded-full px-4 py-2 font-bold " + (view === "list" ? "bg-white text-[var(--primary)] shadow-sm" : "muted")}><LayoutList aria-hidden size={18} />{he.report.listView}</Link>
+            <Link href={reportHref(month, "calendar")} className={"flex min-h-11 items-center gap-2 rounded-full px-4 py-2 font-bold " + (view === "calendar" ? "bg-white text-[var(--primary)] shadow-sm" : "muted")}><CalendarDays aria-hidden size={18} />{he.report.calendarView}</Link>
           </div>
         </div>
 
-        {filterLabel && <div className="no-print mb-3 flex items-center justify-between gap-3 rounded-2xl bg-[var(--primary-soft)] px-4 py-3 text-sm font-bold text-[var(--primary)]"><span>{he.report.activeFilter}: {filterLabel}</span><Link href={reportHref(month, full, "list")} className="min-h-11 rounded-full bg-white px-4 py-2.5">{he.report.clearFilter}</Link></div>}
+        {filterLabel && <div className="no-print mb-3 flex items-center justify-between gap-3 rounded-2xl bg-[var(--primary-soft)] px-4 py-3 text-sm font-bold text-[var(--primary)]"><span>{he.report.activeFilter}: {filterLabel}</span><Link href={reportHref(month, "list")} className="min-h-11 rounded-full bg-white px-4 py-2.5">{he.report.clearFilter}</Link></div>}
 
         {view === "calendar" ? (
-          <CalendarView days={days} statusByDate={analytics.statusByDate} month={month} full={full} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} />
+          <CalendarView days={days} statusByDate={analytics.statusByDate} month={month} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} />
         ) : (
           <ListView focusDate={focusDate} days={visibleDays} statusByDate={analytics.statusByDate} filtered={Boolean(filterLabel)} entriesByDate={entriesByDate} timezone={timezone} />
         )}
       </section>
 
-      <ReportOverview analytics={analytics} month={month} full={full} composition={composition} />
     </div>
     </EntryEditorProvider>
   );
@@ -348,18 +322,18 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, time
 
 function DailyValue({ label, minutes, expectedMinutes, balanceMinutes, cell }: { label: string; minutes: number; expectedMinutes: number; balanceMinutes: number; cell: string }) {
   const balanceTone = balanceMinutes < 0 ? "text-[var(--error)]" : balanceMinutes > 0 ? "text-[var(--success)]" : "text-[var(--text-secondary)]";
-  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><MinuteValue minutes={minutes} /><span className={`mt-1 block text-[10px] leading-4 ${balanceTone}`}>{he.report.dailyStandard} <span className="metric-value inline-block">{formatMinutes(expectedMinutes)}</span><span aria-hidden> · </span>{he.report.difference} <span className="metric-value inline-block">{formatMinutes(balanceMinutes)}</span></span></div>;
+  const showTargetDetail = expectedMinutes > 0 || balanceMinutes !== 0;
+  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><MinuteValue minutes={minutes} />{showTargetDetail && <span className={`mt-1 block text-[10px] leading-4 ${balanceTone}`}>{he.report.dailyStandard} <span className="metric-value inline-block">{formatMinutes(expectedMinutes)}</span><span aria-hidden> · </span>{he.report.difference} <span className="metric-value inline-block">{formatMinutes(balanceMinutes)}</span></span>}</div>;
 }
 
 function ReportTimeCell({ cell, label, value, timezone }: { cell: string; label: string; value: string | null; timezone: string }) {
   return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span>{value ? <time className="metric-value" dateTime={value} dir="ltr">{formatTime(value, timezone)}</time> : <span className="muted" aria-label={he.report.noTime}>—</span>}</div>;
 }
 
-function CalendarView({ days, statusByDate, month, full, entriesByDate, categoryByDate, categoryNames }: {
+function CalendarView({ days, statusByDate, month, entriesByDate, categoryByDate, categoryNames }: {
   days: ReportDay[];
   statusByDate: Record<string, ReportDayStatus>;
   month: string;
-  full: boolean;
   entriesByDate: Record<string, ReportEntry[]>;
   categoryByDate: Record<string, Record<string, number>>;
   categoryNames: Map<string, string>;
@@ -377,7 +351,7 @@ function CalendarView({ days, statusByDate, month, full, entriesByDate, category
             <article key={day.date} className={"min-h-24 overflow-hidden border-b border-s border-[var(--border-soft)] p-1.5 sm:min-h-32 sm:p-2 " + (day.future ? "bg-[var(--background)] text-[var(--text-secondary)]" : "bg-white")}>
               <div className="flex items-start justify-between gap-1">
                 <time className="font-bold" dateTime={day.date}>{Number(day.date.slice(-2))}</time>
-                {!day.future && <Link aria-label={he.report.editDay + " " + day.date} href={reportHref(month, full, "list") + "&editDate=" + day.date} className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]"><Pencil aria-hidden size={16} /></Link>}
+                {!day.future && <Link aria-label={he.report.editDay + " " + day.date} href={reportHref(month, "list") + "&editDate=" + day.date} className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]"><Pencil aria-hidden size={16} /></Link>}
               </div>
               <p className="mt-2 text-center text-xs font-bold sm:text-sm"><MinuteValue minutes={day.workedMinutes} /></p>
               <div className="mt-1 flex justify-center">
@@ -410,6 +384,7 @@ function MinuteValue({ minutes }: { minutes: number }) {
 function reportStatusLabel(status: ReportDayStatus) {
   if (status === "future") return he.report.future;
   if (status === "inProgress") return he.report.inProgress;
+  if (status === "unscheduled") return he.report.unscheduled;
   if (status === "holiday") return he.status.holiday;
   if (status === "shortened") return he.status.shortened;
   if (status === "vacation") return he.status.vacation;
@@ -425,16 +400,18 @@ function StatusBadge({ status, label, compact = false }: { status: ReportDayStat
   const tones: Record<ReportDayStatus, string> = {
     future: "bg-[var(--surface-muted)] text-[var(--status-future)]",
     inProgress: "bg-[var(--primary-soft)] text-[var(--primary)]",
+    unscheduled: "text-[var(--text-secondary)]",
     holiday: "bg-[var(--holiday-soft)] text-[var(--holiday)]",
     shortened: "bg-[var(--shortened-soft)] text-[var(--shortened)]",
     vacation: "bg-[var(--vacation-soft)] text-[var(--vacation)]",
     sick: "bg-[var(--sick-soft)] text-[var(--sick)]",
     incomplete: "bg-[var(--error-soft)] text-[var(--error)]",
-    missingReport: "bg-[var(--error-soft)] text-[var(--error)]",
+    missingReport: "border border-[var(--missing-report-border)] bg-[var(--missing-report-soft)] text-[var(--missing-report)]",
     missingHours: "bg-[var(--error-soft)] text-[var(--error)]",
     overtime: "bg-[var(--success-soft)] text-[var(--success)]",
     completed: "bg-[var(--success-soft)] text-[var(--success)]",
   };
   const size = compact ? "max-w-full truncate px-1.5 py-0.5 text-[10px] sm:px-2" : "px-3 py-1 text-xs";
+  if (status === "unscheduled") return <span aria-label={label} title={label} className="muted inline-flex justify-center">—</span>;
   return <span title={label} className={`inline-flex rounded-full font-bold ${size} ${tones[status]}`}>{label}</span>;
 }

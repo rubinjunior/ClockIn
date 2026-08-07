@@ -1,15 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { timeEntrySchema } from "@/lib/validation/schemas";
 
 function entry(clockIn: string, clockOut: string) { return { clockIn, clockOut, categoryId: "", note: "", reason: "בדיקה" }; }
 
 describe("time entry validation", () => {
-  it("rejects future reports", () => {
-    const future = new Date(Date.now() + 3_600_000);
-    const end = new Date(future.getTime() + 3_600_000);
-    const result = timeEntrySchema.safeParse(entry(future.toISOString(), end.toISOString()));
+  afterEach(() => vi.useRealTimers());
+
+  it("accepts future hours inside the current Israel date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-07T06:00:00.000Z"));
+
+    const result = timeEntrySchema.safeParse(entry(
+      "2026-08-07T14:00:00.000Z",
+      "2026-08-07T15:00:00.000Z",
+    ));
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects reports on a future Israel date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-07T06:00:00.000Z"));
+
+    const result = timeEntrySchema.safeParse(entry(
+      "2026-08-08T06:00:00.000Z",
+      "2026-08-08T07:00:00.000Z",
+    ));
+
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.issues.some((issue) => issue.message === "לא ניתן להזין שעות עתידיות")).toBe(true);
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message === "לא ניתן להזין דיווח ליום עתידי")).toBe(true);
   });
 
   it("rejects zero and negative duration reports", () => {

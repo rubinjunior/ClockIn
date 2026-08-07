@@ -41,6 +41,22 @@ describe("התאמת נתוני הדוח לשגרת העבודה", () => {
     })).toBe(540);
   });
 
+  it("מאפס את התקן בשישי ובשבת שלא סומנו כימי עבודה", () => {
+    for (const date of ["2026-07-03", "2026-07-04"]) {
+      const expectedMinutes = expectedMinutesForDate({
+        date,
+        rpcExpectedMinutes: 540,
+        schedules,
+        exceptions: [],
+        rules: [],
+      });
+      const [day] = reconcileReportDays([reportDay({ date, expectedMinutes, workedMinutes: 0, sessions: 0 })], [], true);
+
+      expect(day.expectedMinutes).toBe(0);
+      expect(day.finalBalanceMinutes).toBe(0);
+      expect(day.missingMinutes).toBe(0);
+    }
+  });
   it("מחשב את מקרה 08:59–17:01 כחוסר של 58 דקות", () => {
     const expectedMinutes = expectedMinutesForDate({
       date: "2026-07-01",

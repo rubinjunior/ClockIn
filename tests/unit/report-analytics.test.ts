@@ -16,7 +16,7 @@ function day(date: string, overrides: Partial<AnalyticsDay> = {}): AnalyticsDay 
 }
 
 describe("ניתוח דוח חודשי", () => {
-  it("מפריד בין יעד עד היום לתקן החודשי המלא", () => {
+  it("מפריד בין התקן המצטבר לתקן החודשי", () => {
     const result = buildReportAnalytics({
       today: "2026-06-03",
       days: [
@@ -78,11 +78,11 @@ describe("ניתוח דוח חודשי", () => {
     }), [], new Set())).toBe("missingReport");
   });
 
-  it("מסווג יום עבר רגיל ללא דיווח כחסר גם כשהתקן אפס", () => {
+  it("משאיר יום שלא הוגדר כיום עבודה ללא חוסר או תקן", () => {
     expect(getReportDayStatus(day("2026-06-06", {
       expectedMinutes: 0,
       finalBalanceMinutes: 0,
-    }), [], new Set())).toBe("missingReport");
+    }), [], new Set())).toBe("unscheduled");
   });
 
   it("משאיר יום חג ללא דיווח כסטטוס חג", () => {

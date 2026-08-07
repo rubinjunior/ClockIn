@@ -19,6 +19,9 @@
   --warning-soft: #fff3d6;
   --error: #b42318;
   --error-soft: #feeceb;
+  --missing-report: #963d36;
+  --missing-report-soft: #fffafa;
+  --missing-report-border: rgba(180, 35, 24, 0.12);
   --vacation: #236b91;
   --vacation-soft: #e8f3f9;
   --sick: #a34b73;
