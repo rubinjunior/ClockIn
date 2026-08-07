@@ -31,7 +31,7 @@ test("חצי החודשים שומרים על משמעות כיוונית בממ
   const [previousBox, nextBox] = await Promise.all([previous.boundingBox(), next.boundingBox()]);
   expect(previousBox).not.toBeNull();
   expect(nextBox).not.toBeNull();
-  expect(nextBox!.x).toBeGreaterThan(previousBox!.x);
+  expect(previousBox!.x).toBeGreaterThan(nextBox!.x);
 
   await next.click();
   await expect(page).toHaveURL(/month=2026-09/);

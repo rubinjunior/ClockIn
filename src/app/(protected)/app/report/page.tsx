@@ -238,9 +238,9 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
       </header>
 
       <section dir="ltr" className="card flex flex-wrap items-center justify-between gap-3 p-3">
-        <Link aria-label={he.report.previousMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, -1), view)}><ChevronLeft aria-hidden /></Link>
+        <Link aria-label={he.report.nextMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, 1), view)}><ChevronLeft aria-hidden /></Link>
         <div dir="rtl" className="text-center"><h2 className="text-xl font-extrabold">{monthLabel}</h2><Link className="text-sm font-bold text-[var(--primary)]" href={reportHref(current, view)}>{he.report.currentMonth}</Link></div>
-        <Link aria-label={he.report.nextMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, 1), view)}><ChevronRight aria-hidden /></Link>
+        <Link aria-label={he.report.previousMonth} className="grid size-12 place-items-center rounded-full bg-[var(--background)]" href={reportHref(shiftMonth(month, -1), view)}><ChevronRight aria-hidden /></Link>
       </section>
 
       <ReportOverview analytics={analytics} month={month} composition={composition} />
