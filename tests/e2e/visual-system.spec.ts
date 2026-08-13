@@ -27,4 +27,25 @@ test("הדוח נשאר ללא גלילה אופקית בטאבלט", async ({ p
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto("/app/report");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(page.locator(".app-sidebar")).toBeHidden();
+  await expect(page.locator(".app-bottom-nav")).toBeVisible();
+});
+
+test("הניווט מתאים את עצמו למובייל ולדסקטופ", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/app");
+  const mobileNav = page.locator(".app-bottom-nav");
+  await expect(mobileNav).toBeVisible();
+  expect((await mobileNav.boundingBox())?.width ?? 0).toBeLessThanOrEqual(360);
+
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(page.locator(".app-bottom-nav")).toBeHidden();
+  const sidebar = page.locator(".app-sidebar");
+  await expect(sidebar).toBeVisible();
+  expect((await sidebar.boundingBox())?.width).toBe(208);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(sidebar).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

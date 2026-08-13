@@ -100,4 +100,13 @@ describe("התאמת נתוני הדוח לשגרת העבודה", () => {
     expect(day.manualAdjustmentMinutes).toBe(-30);
     expect(day.finalBalanceMinutes).toBe(-30);
   });
+  it("מציג זיכוי חופשה מתוכנן ביום עתידי בלי ליצור מאזן עתידי", () => {
+    const [day] = reconcileReportDays([
+      reportDay({ date: "2026-07-08", expectedMinutes: 540, workedMinutes: 0, sessions: 0, future: true }),
+    ], [{ leaveType: "vacation", startDate: "2026-07-08", endDate: "2026-07-08", partialMinutes: null }], true);
+
+    expect(day.creditedAbsenceMinutes).toBe(540);
+    expect(day.finalBalanceMinutes).toBe(0);
+    expect(day.missingMinutes).toBe(0);
+  });
 });

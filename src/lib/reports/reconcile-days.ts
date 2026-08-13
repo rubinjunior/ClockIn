@@ -75,7 +75,7 @@ export function reconcileReportDays<T extends CalendarAwareReportDay>(
     const expectedMinutes = minutes(day.expectedMinutes);
     const future = Boolean(day.future);
     const workedMinutes = future ? 0 : minutes(day.workedMinutes);
-    const creditedAbsenceMinutes = future ? 0 : creditedLeaveMinutes({ ...day, expectedMinutes }, leaves);
+    const creditedAbsenceMinutes = future && !includeFuture ? 0 : creditedLeaveMinutes({ ...day, expectedMinutes }, leaves);
     const manualAdjustmentMinutes = future ? 0 : integer(day.manualAdjustmentMinutes);
     const finalBalanceMinutes = future
       ? 0

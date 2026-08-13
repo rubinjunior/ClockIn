@@ -82,9 +82,15 @@ export function EntryEditorTrigger({
   initialDate,
   ariaLabel,
   showLabel = false,
+  labelOverride,
+  disabled = false,
+  onBeforeOpen,
 }: EditorSelection & {
   ariaLabel: string;
   showLabel?: boolean;
+  labelOverride?: string;
+  disabled?: boolean;
+  onBeforeOpen?: () => void;
 }) {
   const context = useContext(EditorContext);
   if (!context) throw new Error("entry_editor_provider_missing");
@@ -94,10 +100,14 @@ export function EntryEditorTrigger({
       type="button"
       aria-label={ariaLabel}
       className={showLabel ? "button-primary" : "grid size-11 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]"}
-      onClick={() => context.open({ entry, initialDate })}
+      disabled={disabled}
+      onClick={() => {
+        onBeforeOpen?.();
+        context.open({ entry, initialDate });
+      }}
     >
       {entry ? <Pencil aria-hidden size={showLabel ? 20 : 17} /> : <Plus aria-hidden size={showLabel ? 20 : 17} />}
-      {showLabel && <span>{label}</span>}
+      {showLabel && <span>{labelOverride ?? label}</span>}
     </button>
   );
 }

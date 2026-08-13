@@ -56,6 +56,7 @@ describe("ניתוח דוח חודשי", () => {
   it("מסווג עתיד, יום חסר, דיווח חלקי והיעדרות", () => {
     const leaves = [{ leaveType: "sick" as const, startDate: "2026-06-03", endDate: "2026-06-03", partialMinutes: null }];
     expect(getReportDayStatus(day("2026-06-10", { future: true }), leaves, new Set())).toBe("future");
+    expect(getReportDayStatus(day("2026-06-03", { future: true }), leaves, new Set())).toBe("sick");
     expect(getReportDayStatus(day("2026-06-01"), leaves, new Set())).toBe("missingReport");
     expect(getReportDayStatus(day("2026-06-02", { workedMinutes: 300, sessions: 1 }), leaves, new Set())).toBe("missingHours");
     expect(getReportDayStatus(day("2026-06-03", { creditedAbsenceMinutes: 480 }), leaves, new Set())).toBe("sick");
@@ -108,6 +109,25 @@ describe("ניתוח דוח חודשי", () => {
     expect(result.alerts.map((alert) => alert.kind)).toEqual(expect.arrayContaining(["missingReport", "incomplete", "overlap"]));
   });
 
+  it("מחלק כל חודש לרצפים של שבעה ימים ומאפס את מספור השבועות בחודש הבא", () => {
+    const augustDays = Array.from({ length: 31 }, (_, index) =>
+      day(`2026-08-${String(index + 1).padStart(2, "0")}`),
+    );
+    const result = buildReportAnalytics({
+      today: "2026-08-13",
+      days: [...augustDays, day("2026-09-01", { future: true })],
+      leaves: [],
+    });
+
+    expect(result.weeks.map((week) => ({ number: week.number, start: week.startDate, end: week.endDate }))).toEqual([
+      { number: 1, start: "2026-08-01", end: "2026-08-07" },
+      { number: 2, start: "2026-08-08", end: "2026-08-14" },
+      { number: 3, start: "2026-08-15", end: "2026-08-21" },
+      { number: 4, start: "2026-08-22", end: "2026-08-28" },
+      { number: 5, start: "2026-08-29", end: "2026-08-31" },
+      { number: 1, start: "2026-09-01", end: "2026-09-01" },
+    ]);
+  });
   it("מתריע רק על שבוע שהסתיים ולא על השבוע הנוכחי", () => {
     const result = buildReportAnalytics({
       today: "2026-06-09",

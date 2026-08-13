@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { CalendarDays, ChevronLeft, ChevronRight, LayoutList, Pencil } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, LayoutList } from "lucide-react";
 import { ReportActions } from "@/components/reports/report-actions";
 import { ReportDayFocus } from "@/components/reports/report-day-focus";
+import { ReportDayAction, ReportDayActionProvider, type ReportVacation } from "@/components/reports/report-day-action";
 import { ReportOverview, type CompositionItem } from "@/components/reports/report-overview";
 import { type EditableEntry, type EntryFormCategory } from "@/components/entries/entry-form";
 import { EntryEditorProvider, EntryEditorTrigger } from "@/components/entries/entry-editor";
@@ -44,6 +45,15 @@ type ReportEntry = {
   clock_in: string;
   clock_out: string;
   category_id: string | null;
+  note: string | null;
+};
+
+type ReportLeave = {
+  id: string;
+  leave_type: string;
+  start_date: string;
+  end_date: string;
+  partial_minutes: number | null;
   note: string | null;
 };
 
@@ -90,7 +100,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
 
   let timezone = "Asia/Jerusalem";
   let days: ReportDay[];
-  let leaveEntries: Array<{ leave_type: string; start_date: string; end_date: string; partial_minutes: number | null }> = [];
+  let leaveEntries: ReportLeave[] = [];
   let categories: EntryFormCategory[] = [];
   let reportEntries: ReportEntry[] = [];
   let incompleteEntryDates: string[] = [];
@@ -107,7 +117,7 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
 
     const [reportResult, leaveResult, categoriesResult, entriesResult, incompleteResult, schedulesResult, exceptionsResult] = await Promise.all([
       supabase.rpc("monthly_report", { month_start: start, month_end: end, include_future: true }),
-      supabase.from("leave_entries").select("leave_type,start_date,end_date,partial_minutes").eq("status", "approved").lte("start_date", end).gte("end_date", start),
+      supabase.from("leave_entries").select("id,leave_type,start_date,end_date,partial_minutes,note").eq("status", "approved").lte("start_date", end).gte("end_date", start),
       supabase.from("work_categories").select("id,name,is_active").order("sort_order").order("created_at"),
       supabase.from("time_entries").select("id,clock_in,clock_out,category_id,note").lt("clock_in", endsAt).gt("clock_out", startsAt).is("deleted_at", null).not("clock_out", "is", null).order("clock_in"),
       supabase.from("time_entries").select("clock_in").gte("clock_in", startsAt).lt("clock_in", endsAt).is("clock_out", null).is("deleted_at", null),
@@ -173,6 +183,13 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
 
   const normalizedLeaveEntries: LeaveEntryForBalance[] = leaveEntries.map((entry) => ({ leaveType: entry.leave_type as "vacation" | "sick", startDate: entry.start_date, endDate: entry.end_date, partialMinutes: entry.partial_minutes }));
   days = reconcileReportDays(days, normalizedLeaveEntries, true);
+  const vacationByDate: Record<string, ReportVacation> = {};
+  const otherLeaveByDate: Record<string, true> = {};
+  for (const day of days) {
+    const leave = leaveEntries.find((entry) => entry.start_date <= day.date && entry.end_date >= day.date);
+    if (leave?.leave_type === "vacation") vacationByDate[day.date] = { id: leave.id, startDate: leave.start_date, endDate: leave.end_date, partialMinutes: leave.partial_minutes, note: leave.note };
+    else if (leave) otherLeaveByDate[day.date] = true;
+  }
   const analytics = buildReportAnalytics({
     days,
     today,
@@ -231,7 +248,8 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
 
   return (
     <EntryEditorProvider categories={categories} timezone={timezone}>
-    <div className="grid gap-6">
+      <ReportDayActionProvider>
+      <div className="grid gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div><p className="muted text-sm">{he.report.pageSubtitle}</p><h1 className="text-3xl font-extrabold">{he.report.title}</h1></div>
         <ReportActions month={month} />
@@ -258,23 +276,26 @@ export default async function ReportPage({ searchParams }: { searchParams: Promi
         {filterLabel && <div className="no-print mb-3 flex items-center justify-between gap-3 rounded-2xl bg-[var(--primary-soft)] px-4 py-3 text-sm font-bold text-[var(--primary)]"><span>{he.report.activeFilter}: {filterLabel}</span><Link href={reportHref(month, "list")} className="min-h-11 rounded-full bg-white px-4 py-2.5">{he.report.clearFilter}</Link></div>}
 
         {view === "calendar" ? (
-          <CalendarView days={days} statusByDate={analytics.statusByDate} month={month} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} />
+          <CalendarView days={days} statusByDate={analytics.statusByDate} month={month} entriesByDate={entriesByDate} categoryByDate={categorySummary.byDate} categoryNames={categoryNames} vacationByDate={vacationByDate} otherLeaveByDate={otherLeaveByDate} />
         ) : (
-          <ListView focusDate={focusDate} days={visibleDays} statusByDate={analytics.statusByDate} filtered={Boolean(filterLabel)} entriesByDate={entriesByDate} timezone={timezone} />
+          <ListView focusDate={focusDate} days={visibleDays} statusByDate={analytics.statusByDate} filtered={Boolean(filterLabel)} entriesByDate={entriesByDate} vacationByDate={vacationByDate} otherLeaveByDate={otherLeaveByDate} timezone={timezone} />
         )}
       </section>
 
-    </div>
+      </div>
+      </ReportDayActionProvider>
     </EntryEditorProvider>
   );
 }
 
-function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, timezone }: {
+function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, vacationByDate, otherLeaveByDate, timezone }: {
   focusDate?: string;
   days: ReportDay[];
   statusByDate: Record<string, ReportDayStatus>;
   filtered: boolean;
   entriesByDate: Record<string, ReportEntry[]>;
+  vacationByDate: Record<string, ReportVacation>;
+  otherLeaveByDate: Record<string, true>;
   timezone: string;
 }) {
   if (!days.length) return <div className="card p-8 text-center"><p className="font-bold">{filtered ? he.report.filteredEmpty : he.report.empty}</p></div>;
@@ -289,7 +310,7 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, time
         </div>
         {days.map((day) => {
           const entries = entriesByDate[day.date] ?? [];
-          const notes = [...new Set(entries.map((entry) => entry.note?.trim()).filter((note): note is string => Boolean(note)))];
+          const notes = [...new Set([...entries.map((entry) => entry.note?.trim()), vacationByDate[day.date]?.note?.trim()].filter((note): note is string => Boolean(note)))];
           return (
             <article
               role="row"
@@ -305,13 +326,13 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, time
               </div>
               <ReportTimeCell cell="start" label={he.report.startTime} value={day.firstClockIn} timezone={timezone} />
               <ReportTimeCell cell="end" label={he.report.endTime} value={day.lastClockOut} timezone={timezone} />
-              <DailyValue label={he.report.worked} minutes={day.workedMinutes} expectedMinutes={day.expectedMinutes} balanceMinutes={day.finalBalanceMinutes} cell="worked" />
+              <DailyValue label={he.report.worked} minutes={day.workedMinutes} expectedMinutes={day.expectedMinutes} creditedMinutes={day.creditedAbsenceMinutes} balanceMinutes={day.finalBalanceMinutes} status={statusByDate[day.date]} cell="worked" />
               <div role="cell" data-cell="notes" className="col-span-2 min-w-0 md:col-auto md:p-3">
                 <span className="muted block text-xs md:hidden">{he.report.notes}</span>
                 <span className={notes.length ? "block break-words text-sm" : "muted block text-sm"}>{notes.length ? notes.join(" · ") : he.report.noNotes}</span>
               </div>
               <div role="cell" data-cell="status" className="md:p-3 md:text-start"><span className="muted mb-1 block text-xs md:hidden">{he.report.status}</span><StatusBadge status={statusByDate[day.date]} label={day.holidayLabel ?? reportStatusLabel(statusByDate[day.date])} /></div>
-              <div role="cell" data-cell="actions" className="border-t border-[var(--border-soft)] pt-3 text-center md:border-0 md:p-2"><span className="muted mb-1 block text-xs md:hidden">{he.report.edit}</span><DayEntryActions date={day.date} entries={entries} timezone={timezone} allowAdd={!day.future} /></div>
+              <div role="cell" data-cell="actions" className="border-t border-[var(--border-soft)] pt-3 text-center md:border-0 md:p-2"><span className="muted mb-1 block text-xs md:hidden">{he.report.edit}</span><DayEntryActions date={day.date} entries={entries} timezone={timezone} expectedMinutes={day.expectedMinutes} workedMinutes={day.workedMinutes} allowTimeEntry={!day.future} vacation={vacationByDate[day.date]} hasOtherLeave={Boolean(otherLeaveByDate[day.date])} /></div>
             </article>
           );
         })}
@@ -320,23 +341,26 @@ function ListView({ focusDate, days, statusByDate, filtered, entriesByDate, time
   );
 }
 
-function DailyValue({ label, minutes, expectedMinutes, balanceMinutes, cell }: { label: string; minutes: number; expectedMinutes: number; balanceMinutes: number; cell: string }) {
+function DailyValue({ label, minutes, expectedMinutes, creditedMinutes, balanceMinutes, status, cell }: { label: string; minutes: number; expectedMinutes: number; creditedMinutes: number; balanceMinutes: number; status: ReportDayStatus; cell: string }) {
   const balanceTone = balanceMinutes < 0 ? "text-[var(--error)]" : balanceMinutes > 0 ? "text-[var(--success)]" : "text-[var(--text-secondary)]";
   const showTargetDetail = expectedMinutes > 0 || balanceMinutes !== 0;
-  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><MinuteValue minutes={minutes} />{showTargetDetail && <span className={`mt-1 block text-[10px] leading-4 ${balanceTone}`}>{he.report.dailyStandard} <span className="metric-value inline-block">{formatMinutes(expectedMinutes)}</span><span aria-hidden> · </span>{he.report.difference} <span className="metric-value inline-block">{formatMinutes(balanceMinutes)}</span></span>}</div>;
+  const vacationCredit = status === "vacation" && creditedMinutes > 0;
+  return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span><MinuteValue minutes={minutes} />{vacationCredit ? <span className="mt-1 block text-[10px] leading-4 text-[var(--vacation)]">{he.report.vacationCredit} <span className="metric-value inline-block">{formatMinutes(creditedMinutes)}</span><span aria-hidden> · </span>{he.report.difference} <span className="metric-value inline-block">{formatMinutes(balanceMinutes)}</span></span> : showTargetDetail && <span className={`mt-1 block text-[10px] leading-4 ${balanceTone}` }><span>{he.report.dailyStandard} </span><span className="metric-value inline-block">{formatMinutes(expectedMinutes)}</span><span aria-hidden> · </span>{he.report.difference} <span className="metric-value inline-block">{formatMinutes(balanceMinutes)}</span></span>}</div>;
 }
 
 function ReportTimeCell({ cell, label, value, timezone }: { cell: string; label: string; value: string | null; timezone: string }) {
   return <div role="cell" data-cell={cell} className="text-center md:p-3"><span className="muted block text-xs md:hidden">{label}</span>{value ? <time className="metric-value" dateTime={value} dir="ltr">{formatTime(value, timezone)}</time> : <span className="muted" aria-label={he.report.noTime}>—</span>}</div>;
 }
 
-function CalendarView({ days, statusByDate, month, entriesByDate, categoryByDate, categoryNames }: {
+function CalendarView({ days, statusByDate, month, entriesByDate, categoryByDate, categoryNames, vacationByDate, otherLeaveByDate }: {
   days: ReportDay[];
   statusByDate: Record<string, ReportDayStatus>;
   month: string;
   entriesByDate: Record<string, ReportEntry[]>;
   categoryByDate: Record<string, Record<string, number>>;
   categoryNames: Map<string, string>;
+  vacationByDate: Record<string, ReportVacation>;
+  otherLeaveByDate: Record<string, true>;
 }) {
   const offset = new Date(month + "-01T12:00:00Z").getUTCDay();
   return (
@@ -351,7 +375,7 @@ function CalendarView({ days, statusByDate, month, entriesByDate, categoryByDate
             <article key={day.date} className={"min-h-24 overflow-hidden border-b border-s border-[var(--border-soft)] p-1.5 sm:min-h-32 sm:p-2 " + (day.future ? "bg-[var(--background)] text-[var(--text-secondary)]" : "bg-white")}>
               <div className="flex items-start justify-between gap-1">
                 <time className="font-bold" dateTime={day.date}>{Number(day.date.slice(-2))}</time>
-                {!day.future && <Link aria-label={he.report.editDay + " " + day.date} href={reportHref(month, "list") + "&editDate=" + day.date} className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]"><Pencil aria-hidden size={16} /></Link>}
+                <ReportDayAction date={day.date} expectedMinutes={day.expectedMinutes} workedMinutes={day.workedMinutes} allowTimeEntry={!day.future} vacation={vacationByDate[day.date]} hasOtherLeave={Boolean(otherLeaveByDate[day.date])} />
               </div>
               <p className="mt-2 text-center text-xs font-bold sm:text-sm"><MinuteValue minutes={day.workedMinutes} /></p>
               <div className="mt-1 flex justify-center">
@@ -369,11 +393,11 @@ function CalendarView({ days, statusByDate, month, entriesByDate, categoryByDate
   );
 }
 
-function DayEntryActions({ date, entries, timezone, allowAdd }: { date: string; entries: ReportEntry[]; timezone: string; allowAdd: boolean }) {
+function DayEntryActions({ date, entries, timezone, expectedMinutes, workedMinutes, allowTimeEntry, vacation, hasOtherLeave }: { date: string; entries: ReportEntry[]; timezone: string; expectedMinutes: number; workedMinutes: number; allowTimeEntry: boolean; vacation?: ReportVacation; hasOtherLeave: boolean }) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-1">
       {entries.map((entry) => <EntryEditorTrigger key={entry.id} ariaLabel={he.report.editEntry + " " + formatTime(entry.clock_in)} entry={editableEntry(entry, timezone)} />)}
-      {allowAdd && <EntryEditorTrigger ariaLabel={he.entries.add + " " + date} initialDate={date} />}
+      <ReportDayAction date={date} expectedMinutes={expectedMinutes} workedMinutes={workedMinutes} allowTimeEntry={allowTimeEntry} vacation={vacation} hasOtherLeave={hasOtherLeave} />
     </div>
   );
 }

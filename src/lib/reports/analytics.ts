@@ -60,18 +60,11 @@ export type ReportAlert = {
   weekStart?: string;
 };
 
-function dateAtNoon(date: string) {
-  return new Date(date + "T12:00:00Z");
-}
 
-function addDays(date: string, amount: number) {
-  const value = dateAtNoon(date);
-  value.setUTCDate(value.getUTCDate() + amount);
-  return value.toISOString().slice(0, 10);
-}
-
-function sundayOf(date: string) {
-  return addDays(date, -dateAtNoon(date).getUTCDay());
+function monthlyWeekStart(date: string) {
+  const dayOfMonth = Number(date.slice(8, 10));
+  const startDay = Math.floor((dayOfMonth - 1) / 7) * 7 + 1;
+  return `${date.slice(0, 8)}${String(startDay).padStart(2, "0")}`;
 }
 
 function matchingLeave(day: AnalyticsDay, leaves: AnalyticsLeave[]) {
@@ -93,13 +86,17 @@ export function getReportDayStatus(day: AnalyticsDay, leaves: AnalyticsLeave[], 
   const workedMinutes = Math.max(0, reportInteger(day.workedMinutes));
   const creditedAbsenceMinutes = Math.max(0, reportInteger(day.creditedAbsenceMinutes));
   const manualAdjustmentMinutes = reportInteger(day.manualAdjustmentMinutes);
-  if (day.future) return "future";
+  const leave = matchingLeave(day, leaves);
+  if (day.future) {
+    if (leave?.leaveType === "vacation") return "vacation";
+    if (leave?.leaveType === "sick") return "sick";
+    return "future";
+  }
   if (incompleteDates.has(day.date)) return "incomplete";
   if (day.holidayLabel && expectedMinutes === 0) return "holiday";
   if (expectedMinutes === 0 && workedMinutes === 0 && creditedAbsenceMinutes === 0 && manualAdjustmentMinutes === 0) return "unscheduled";
   if (day.provisional) return "inProgress";
   if (day.shortenedDay) return "shortened";
-  const leave = matchingLeave(day, leaves);
   if (leave?.leaveType === "vacation" && creditedAbsenceMinutes > 0) return "vacation";
   if (leave?.leaveType === "sick" && creditedAbsenceMinutes > 0) return "sick";
   const balance = workedMinutes + creditedAbsenceMinutes + manualAdjustmentMinutes - expectedMinutes;
@@ -113,13 +110,13 @@ export function getReportDayStatus(day: AnalyticsDay, leaves: AnalyticsLeave[], 
 function buildWeeks(days: AnalyticsDay[], today: string): ReportWeek[] {
   const groups = new Map<string, AnalyticsDay[]>();
   for (const day of days) {
-    const key = sundayOf(day.date);
+    const key = monthlyWeekStart(day.date);
     const group = groups.get(key) ?? [];
     group.push(day);
     groups.set(key, group);
   }
 
-  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, weekDays], index) => {
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, weekDays]) => {
     const startDate = weekDays[0].date;
     const endDate = weekDays.at(-1)!.date;
     const elapsed = weekDays.filter((day) => day.date <= today);
@@ -131,7 +128,7 @@ function buildWeeks(days: AnalyticsDay[], today: string): ReportWeek[] {
     const status = startDate > today ? "future" : endDate < today ? "completed" : "current";
     return {
       key,
-      number: index + 1,
+      number: Math.floor((Number(key.slice(8, 10)) - 1) / 7) + 1,
       startDate,
       endDate,
       expectedMinutes: status === "future" ? fullExpectedMinutes : elapsedExpectedMinutes,

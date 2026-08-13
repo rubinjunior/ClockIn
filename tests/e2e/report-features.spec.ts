@@ -50,24 +50,41 @@ test("כרטיס הפלוס פותח את שדה הקטגוריה בהגדרות
 
 test("אפשר להוסיף דיווח ליום ישירות מתוך הדוח", async ({ page }) => {
   await page.goto("/app/report?month=2026-07");
-  const addButton = page.getByRole("button", { name: /הוספת דיווח 2026-07/ }).first();
-  await addButton.click();
+  await page.getByRole("button", { name: /הוספת פעולה ליום 2026-07/ }).first().click();
+  const chooser = page.locator("dialog[open]");
+  await expect(chooser.getByRole("heading", { name: "מה תרצו לעדכן?" })).toBeVisible();
+  await chooser.getByRole("button", { name: /דיווח שעות 2026-07/ }).click();
   const modal = page.locator("dialog[open]");
   await expect(modal.getByRole("heading", { name: "הוספת דיווח" })).toBeVisible();
   await expect(modal.getByRole("combobox", { name: "קטגוריה" })).toBeVisible();
   await expect(modal.getByText("ניתן לדווח עד סוף היום הנוכחי; ימים עתידיים חסומים")).toBeVisible();
   await expect(modal.getByLabel("כניסה")).toHaveAttribute("max", /T23:59$/);
   await expect(modal.getByLabel("סיבת השינוי")).toHaveCount(0);
-  await expect(page.locator("dialog")).toHaveCount(1);
+  await expect(page.locator("dialog[open]")).toHaveCount(1);
   await modal.getByRole("button", { name: "שמירה" }).click();
   await expect(page.getByRole("status").filter({ hasText: "הדיווח נשמר לצורך ההדגמה" })).toBeVisible();
-  await expect(page.locator("dialog")).toHaveCount(0);
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
+});
+
+test("אפשר להוסיף יום חופשה בלי לצאת מהדוח", async ({ page }) => {
+  await page.goto("/app/report?month=2026-07&view=list");
+  await page.getByRole("button", { name: "הוספת פעולה ליום 2026-07-01" }).click();
+  const chooser = page.locator("dialog[open]");
+  await chooser.getByRole("button", { name: "יום חופשה", exact: true }).click();
+  const vacationDialog = page.locator("dialog[open]");
+  await expect(vacationDialog.getByRole("heading", { name: "יום חופשה" })).toBeVisible();
+  await expect(vacationDialog.getByText("תקן")).toBeVisible();
+  await expect(vacationDialog.getByRole("radio", { name: "יום חופשה מלא" })).toBeChecked();
+  await vacationDialog.getByRole("button", { name: "שמירת יום חופשה" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "יום החופשה נשמר לצורך ההדגמה" })).toBeVisible();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
 });
 
 test("אפשר להזין שעות מאוחרות מהשעה הנוכחית בתוך אותו היום", async ({ page }) => {
   const today = israelToday();
   await page.goto(`/app/report?month=${today.slice(0, 7)}&view=list`);
-  await page.getByRole("button", { name: `הוספת דיווח ${today}` }).click();
+  await page.getByRole("button", { name: `הוספת פעולה ליום ${today}` }).click();
+  await page.locator("dialog[open]").getByRole("button", { name: `דיווח שעות ${today}` }).click();
   const modal = page.locator("dialog[open]");
   await modal.getByLabel("כניסה").fill(`${today}T22:00`);
   await modal.getByLabel("יציאה").fill(`${today}T23:00`);
@@ -116,10 +133,15 @@ test("ימים שלא סומנו כימי עבודה מוצגים ללא תקן,
   const missingReport = page.locator('[data-date="2026-07-02"]:visible').getByText("חסר דיווח", { exact: true });
   await expect(missingReport).toHaveCSS("background-color", "rgb(255, 250, 250)");
 });
-test("לא ניתן להוסיף דיווח ליום עתידי", async ({ page }) => {
-  const tomorrow = shiftDate(israelToday(), 1);
-  await page.goto(`/app/report?month=${tomorrow.slice(0, 7)}&view=list`);
-  await expect(page.getByRole("button", { name: `הוספת דיווח ${tomorrow}` })).toHaveCount(0);
+test("ביום עתידי דיווח שעות חסום אך יום חופשה זמין", async ({ page }) => {
+  let futureWorkday = shiftDate(israelToday(), 1);
+  while (new Date(futureWorkday + "T12:00:00Z").getUTCDay() > 4) futureWorkday = shiftDate(futureWorkday, 1);
+  await page.goto(`/app/report?month=${futureWorkday.slice(0, 7)}&view=list`);
+  await page.getByRole("button", { name: `הוספת פעולה ליום ${futureWorkday}` }).click();
+  const chooser = page.locator("dialog[open]");
+  await expect(chooser.getByRole("button", { name: `דיווח שעות ${futureWorkday}` })).toBeDisabled();
+  await expect(chooser.getByRole("button", { name: "יום חופשה", exact: true })).toBeEnabled();
+  await expect(chooser.getByText("דיווח שעות עתידי חסום, אך אפשר לתכנן יום חופשה.")).toBeVisible();
 });
 test("שכר משוער מוצג בבית ולא בדוח", async ({ page }) => {
   await page.goto("/app");
@@ -140,11 +162,12 @@ test("היום הנוכחי אינו מסומן כחסר דיווח", async ({ p
   await expect(day.locator('[data-cell="status"]')).not.toContainText("חסר דיווח");
 });
 
-test("מלוח השנה אפשר להגיע ישירות לעריכת היום", async ({ page }) => {
+test("מלוח השנה אפשר לפתוח ישירות את פעולות היום", async ({ page }) => {
   await page.goto("/app/report?month=2026-07&view=calendar");
-  await page.getByRole("link", { name: "פתיחת יום לעריכה 2026-07-20" }).click();
-  await expect(page).toHaveURL(/view=list&editDate=2026-07-20$/);
-  await expect(page.locator('[data-report-date="2026-07-20"]:visible')).toBeFocused();
+  await page.getByRole("button", { name: "הוספת פעולה ליום 2026-07-20" }).click();
+  const chooser = page.locator("dialog[open]");
+  await expect(chooser.getByRole("heading", { name: "מה תרצו לעדכן?" })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: "יום חופשה", exact: true })).toBeEnabled();
 });
 
 test("הדוח מציג תמיד מצב נוכחי ללא בחירת טווח", async ({ page }) => {
@@ -164,9 +187,10 @@ test("הדוח מציג תמיד מצב נוכחי ללא בחירת טווח", 
 test("בחירת שבוע מסננת את הפירוט היומי", async ({ page }) => {
   await page.goto("/app/report?month=2026-07");
   await page.getByRole("link").filter({ hasText: "שבוע 1" }).first().click();
-  await expect(page).toHaveURL(/week=2026-06-28/);
+  await expect(page).toHaveURL(/week=2026-07-01/);
   await expect(page.getByText("הפירוט מסונן: שבוע 1", { exact: true })).toBeVisible();
-  await expect(page.locator("[data-date]:visible")).toHaveCount(4);
+  await expect(page.locator("[data-date]:visible")).toHaveCount(7);
+  await expect(page.getByText("שבוע 6", { exact: true })).toHaveCount(0);
 });
 
 test("ההתראות מוצגות בבית ומובילות לדוח המסונן", async ({ page }) => {
